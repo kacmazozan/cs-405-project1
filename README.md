@@ -37,6 +37,9 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 **Painting** — choose the painting. Each painting keeps its own curve.
 
 **C · Camera**
+- *look through* — the main camera, or a fixed **inspection camera** that shows
+  the main camera's frustum (near plane blue, far plane red, eye and target).
+  The mouse keeps moving the main camera, so you can watch its frustum move.
 - *projection* — perspective / orthographic.
 - *fov y*, *near*, *far*, *ortho height* — projection parameters.
 - *front / three-quarter / side / top* — preset views. *top* looks straight
@@ -80,6 +83,11 @@ gripper tip's world position (product of every matrix along the chain).
 **View** — *reset* restores the camera, the objects and the curve settings.
 The stats box shows frame time, CPU time, draw calls and vertices per frame.
 
+## Deliverables in this repository
+
+- `curves/kavunlu-curve.json` — the exported curve (outline of the melon slice).
+- `report/report.md` — the report draft; the PDF goes next to it as `report/report.pdf`.
+
 ## Curve export format
 
 Control points are in normalised painting coordinates (u, v ∈ [0, 1], origin
@@ -102,7 +110,7 @@ A closed Bézier curve's last P3 equals its first P0.
 | `src/math/vec3.js`, `mat4.js` | vectors; matrices, rigid inverse, normal matrix, lookAt, WebGPU projections |
 | `src/math/curves.js` | Bernstein / Bézier, de Casteljau, C¹ joints, Catmull–Rom, B-spline, basis conversions |
 | `src/scene/node.js` | scene-graph node, `world = parent.world · local` |
-| `src/scene/camera.js` | camera data, P·V, orbit / zoom / pan, preset views, screen ray for picking |
+| `src/scene/camera.js` | camera data, P·V, orbit / zoom / pan, preset views, inspection camera and frustum, screen ray for picking |
 | `src/scene/scene.js` | builds the scene graph and draws it |
 | `src/scene/objects.js` | Part A objects and the T·R·S demo |
 | `src/scene/arm.js` | Part B robot arm |
@@ -114,7 +122,7 @@ A closed Bézier curve's last P3 equals its first P0.
 | `src/render/overlay.js` | thick lines and point markers (instanced quads) |
 | `src/render/*` (others) | WebGPU setup, painting, textures, sRGB handling (provided) |
 | `src/ui/*` | panel, stats, pointer events (provided) |
-| `tests/` | unit tests (`curve.test.js` is ours, the rest are the course's) |
+| `tests/` | unit tests (`curve.test.js` and `camera.test.js` are ours, the rest are the course's) |
 
 ### Scene graph
 

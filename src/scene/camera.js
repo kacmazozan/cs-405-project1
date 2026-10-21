@@ -18,8 +18,10 @@ export function createCamera() {
     target: [0, 0, 0],
     up: [0, 1, 0],
     fovY: Math.PI / 4, // radians
+    // near/far bracket the scene tightly: depth precision is spent mostly
+    // near the near plane, so near ≫ 0 and far / near small keep it usable
     near: 0.1,
-    far: 100,
+    far: 20,
     projection: 'perspective', // or 'orthographic'
     orthoHeight: 2.2, // world units visible vertically in orthographic mode
   };
@@ -100,7 +102,7 @@ export function zoom(cam, factor) {
     return;
   }
   const off = vec3.sub(cam.eye, cam.target);
-  const r = Math.max(0.15, Math.min(60, vec3.length(off) * factor));
+  const r = Math.max(0.15, Math.min(15, vec3.length(off) * factor));
   cam.eye = vec3.add(cam.target, vec3.scale(vec3.normalize(off), r));
 }
 
@@ -131,6 +133,43 @@ export function setView(cam, name) {
   cam.target = [0, 0, 0];
   cam.eye = [...v.eye];
   cam.up = [...v.up];
+}
+
+/**
+ * The second, fixed "inspection" camera (Part C): it looks at the scene from
+ * the side and behind, far enough out to see the main camera and its frustum.
+ */
+export function createInspectionCamera() {
+  return {
+    ...createCamera(),
+    eye: [5.2, 3.4, 6.2],
+    target: [0, -0.1, 1.2],
+    fovY: (50 * Math.PI) / 180,
+    far: 200,
+  };
+}
+
+/**
+ * Edges of a camera's view frustum in WORLD space, as [a, b] segments.
+ * The eight corners are easy in VIEW space — the near and far rectangles at
+ * z = −near and z = −far, of half-height d·tan(fov/2) (perspective) or
+ * orthoHeight/2 (orthographic) — and V⁻¹ = invertRigid(V) carries them out.
+ */
+export function frustumLines(cam, aspect) {
+  const toWorld = mat4.invertRigid(mat4.lookAt(cam.eye, cam.target, cam.up));
+  const rect = (d) => {
+    const h = cam.projection === 'orthographic' ? cam.orthoHeight / 2 : d * Math.tan(cam.fovY / 2);
+    const w = h * aspect;
+    return [[-w, -h], [w, -h], [w, h], [-w, h]]
+      .map(([x, y]) => mat4.transformVec4(toWorld, [x, y, -d, 1]).slice(0, 3));
+  };
+  const n = rect(cam.near), f = rect(cam.far);
+  const lines = [];
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    lines.push([n[i], n[j]], [f[i], f[j]], [n[i], f[i]]);
+  }
+  return { lines, near: n, far: f };
 }
 
 /* ----------------------------------------------------- picking ---------- */

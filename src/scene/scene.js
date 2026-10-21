@@ -74,8 +74,11 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       arm.afterUpdate();
     },
 
-    /** @param {GPURenderPassEncoder} pass  @param {Float32Array} viewProj  P · V */
-    draw(pass, viewProj) {
+    /**
+     * @param {GPURenderPassEncoder} pass  @param {Float32Array} viewProj  P · V
+     * @param {(overlay: Overlay) => void} [extra]  more overlay drawing (main.js: the frustum)
+     */
+    draw(pass, viewProj, extra) {
       const nodes = visibleNodes(root);
       const drawn = nodes.filter((n) => n.data.mesh);
       // opaque first; see-through objects last so what is behind them is already there
@@ -95,6 +98,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
         }
       }
       curves.drawOverlay(overlay);
+      extra?.(overlay);
       overlay.draw(pass, viewProj);
     },
 

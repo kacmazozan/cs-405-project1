@@ -9,7 +9,10 @@ import './ui/style.css';
 import { initWebGPU, showFatal } from './render/gpu.js';
 import { Renderer } from './render/renderer.js';
 import { Painting } from './render/painting.js';
-import { createCamera, viewProjection, orbit, zoom, pan, setView, VIEWS } from './scene/camera.js';
+import {
+  createCamera, createInspectionCamera, viewProjection, frustumLines, orbit, zoom, pan, setView, VIEWS,
+} from './scene/camera.js';
+import { hex } from './render/colour.js';
 import { createScene } from './scene/scene.js';
 import { createPanel } from './ui/panel.js';
 import { Stats } from './ui/stats.js';
@@ -46,11 +49,16 @@ async function main() {
     });
 
   const camera = createCamera();
-  // what the scene needs for picking: the camera and this frame's P · V
+  // Part C: a second, fixed camera that shows the main camera and its frustum.
+  // The mouse always moves the MAIN camera, so you can watch its frustum follow.
+  const inspection = createInspectionCamera();
+  const views = { active: 'main camera' };
+  // what the scene needs for picking: the camera we render with and this frame's P · V
   const view = { camera, canvas, aspect: 1, viewProj: mat4.identity() };
 
   const cf = panel.folder('C · Camera');
   const camStatus = cf.text('');
+  const viewSel = cf.select('look through', ['main camera', 'inspection camera'], views.active, (v) => (views.active = v));
   const projSel = cf.select('projection', ['perspective', 'orthographic'], camera.projection, (v) => (camera.projection = v));
   const camUI = { fovDeg: camera.fovY * 180 / Math.PI };
   const camSliders = [
@@ -76,6 +84,8 @@ async function main() {
     camUI.fovDeg = camera.fovY * 180 / Math.PI;
     camSliders.forEach((s) => s.update());
     projSel.set(camera.projection);
+    views.active = 'main camera';
+    viewSel.set(views.active);
     scene.reset();
   });
   vf.note(gpu.encodeSRGB ? 'sRGB: encoded in shader (fallback)' : 'sRGB: canvas -srgb view');
@@ -114,12 +124,14 @@ async function main() {
     scene.update(dt, now / 1000);
 
     const aspect = canvas.width / canvas.height;
-    const vp = viewProjection(camera, aspect, painting.aspect);
+    const inspecting = views.active === 'inspection camera';
+    view.camera = inspecting ? inspection : camera;
+    const vp = viewProjection(view.camera, aspect, painting.aspect);
     view.aspect = aspect;
     view.viewProj = vp.matrix;
     camStatus.set(vp.fallback
       ? `PLACEHOLDER view (no camera yet)\n${vp.missing}`
-      : `camera: P · V (${camera.projection})`);
+      : `${inspecting ? 'INSPECTION view — mouse still moves the main camera' : 'main camera'}: P · V (${camera.projection})`);
     camStatus.el.classList.toggle('warn', vp.fallback);
     camReadout.set(
       `eye    ${camera.eye.map((x) => x.toFixed(2)).join(', ')}\n` +
@@ -137,13 +149,25 @@ async function main() {
     const paintingMVP = vp.fallback ? vp.matrix : mat4.multiply(vp.matrix, painting.model);
     renderer.render((pass) => {
       painting.draw(pass, paintingMVP, renderer);
-      scene.draw(pass, vp.matrix);
+      scene.draw(pass, vp.matrix, inspecting ? (overlay) => drawCamera(overlay, camera, aspect) : undefined);
     });
 
     stats.end(renderer.stats);
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+}
+
+/** The main camera as seen from the inspection camera: its frustum, eye and view direction. */
+const FRUSTUM = hex('#ffe066'), NEAR = hex('#5ad1ff'), FAR = hex('#ff7a7a');
+function drawCamera(overlay, cam, aspect) {
+  const { lines, near, far } = frustumLines(cam, aspect);
+  for (const [a, b] of lines) overlay.line(a, b, FRUSTUM, 1.5, true);
+  overlay.polyline(near, NEAR, 3, true, true);
+  overlay.polyline(far, FAR, 3, true, true);
+  overlay.line(cam.eye, cam.target, hex('#ffffff'), 1, true);
+  overlay.point(cam.eye, FRUSTUM, 12);
+  overlay.point(cam.target, hex('#ffffff'), 7);
 }
 
 main().catch((e) => {
