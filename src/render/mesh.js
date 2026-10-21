@@ -20,13 +20,24 @@ const SLOT_BYTES = SLOT_FLOATS * 4; // 224
 /** A vertex buffer of interleaved [x, y, z, nx, ny, nz] (scene/geometry.js layout). */
 export class Mesh {
   constructor(device, data, label) {
+    this.device = device;
+    this.label = label;
+    this.buffer = null;
+    this.update(data);
+  }
+
+  /** Replace the vertex data (e.g. a swept surface after the curve changed). */
+  update(data) {
     this.count = data.length / 6;
-    this.buffer = device.createBuffer({
-      label,
-      size: data.byteLength,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(this.buffer, 0, data);
+    if (!this.buffer || this.buffer.size < data.byteLength) {
+      this.buffer?.destroy();
+      this.buffer = this.device.createBuffer({
+        label: this.label,
+        size: Math.max(24, data.byteLength),
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+      });
+    }
+    if (data.length) this.device.queue.writeBuffer(this.buffer, 0, data);
   }
 }
 

@@ -25,12 +25,13 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 
 | Action | Effect |
 |---|---|
-| left-drag on empty space | orbit the camera around its target |
+| left-drag on empty space | orbit the camera around its target (quaternion rotation, elevation clamped at ±89°) |
 | right- or middle-drag | pan (move eye and target together) |
 | mouse wheel | zoom (perspective: dolly; orthographic: change the visible height) |
 | shift + click on the painting | add a curve control point (keep dragging to place it) |
 | drag a control point | move it (Bézier: the joint stays C¹) |
 | alt + click a control point | delete it (on a Bézier handle: deletes its anchor) |
+| left-drag on the painting, *freehand trace* on | draw a stroke; release to fit a curve to it (bonus) |
 
 ## Panel
 
@@ -42,8 +43,9 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
   The mouse keeps moving the main camera, so you can watch its frustum move.
 - *projection* — perspective / orthographic.
 - *fov y*, *near*, *far*, *ortho height* — projection parameters.
-- *front / three-quarter / side / top* — preset views. *top* looks straight
-  down with up parallel to the view direction, which tests the `lookAt` fallback.
+- *front / three-quarter / side / top* — preset views. The camera flies there
+  smoothly (quaternion slerp of its orientation). *top* looks straight down with
+  up parallel to the view direction, which tests the `lookAt` fallback.
 - The readout shows eye, target, fov, near and far.
 
 **C · Matrices** (collapsed) — the current view matrix V and projection matrix P.
@@ -80,6 +82,16 @@ gripper tip's world position (product of every matrix along the chain).
 - *export JSON* / *import JSON* — save or load the curve (format below).
   *reset curve* restores the preset, *clear* removes all points.
 
+**Bonus · fitting & surfaces**
+- *freehand trace* — drag over the painting to draw a stroke; on release a C¹
+  piecewise Bézier with *fit segments* segments is fitted to it by least squares
+  and becomes the curve (a stroke that ends near its start gives a closed curve).
+  The stroke stays visible in pink; the RMS error in painting pixels is shown in
+  the D readout. Turn it off to edit the fitted control points.
+- *swept surface* — builds a mesh from the curve: *revolve* about a horizontal or
+  vertical axis through the curve's centroid (placed in front of the painting), or
+  *extrude* it out of the painting by *extrude depth*. It updates while you edit.
+
 **View** — *reset* restores the camera, the objects and the curve settings.
 The stats box shows frame time, CPU time, draw calls and vertices per frame.
 
@@ -108,6 +120,9 @@ A closed Bézier curve's last P3 equals its first P0.
 | Path | Contents |
 |---|---|
 | `src/math/vec3.js`, `mat4.js` | vectors; matrices, rigid inverse, normal matrix, lookAt, WebGPU projections |
+| `src/math/quat.js` | quaternions: axis-angle, product, rotation, from basis, slerp (bonus) |
+| `src/math/fit.js` | least-squares Bézier fitting, Newton reparametrisation, C¹ piecewise fit (bonus) |
+| `src/scene/sweep.js` | surface of revolution and extrusion of a curve (bonus) |
 | `src/math/curves.js` | Bernstein / Bézier, de Casteljau, C¹ joints, Catmull–Rom, B-spline, basis conversions |
 | `src/scene/node.js` | scene-graph node, `world = parent.world · local` |
 | `src/scene/camera.js` | camera data, P·V, orbit / zoom / pan, preset views, inspection camera and frustum, screen ray for picking |
@@ -122,7 +137,7 @@ A closed Bézier curve's last P3 equals its first P0.
 | `src/render/overlay.js` | thick lines and point markers (instanced quads) |
 | `src/render/*` (others) | WebGPU setup, painting, textures, sRGB handling (provided) |
 | `src/ui/*` | panel, stats, pointer events (provided) |
-| `tests/` | unit tests (`curve.test.js` and `camera.test.js` are ours, the rest are the course's) |
+| `tests/` | unit tests (`curve.test.js`, `camera.test.js` and `bonus.test.js` are ours, the rest are the course's) |
 
 ### Scene graph
 
@@ -144,7 +159,8 @@ world
 │              ├─ wrist joint · palm · tip
 │              ├─ finger L (Rz grip) ── mesh
 │              └─ finger R (Rz −grip) ── mesh
-└─ curve follower
+├─ curve follower
+└─ swept surface (bonus)
 ```
 
 Joint nodes hold only rotation + translation; the scale that shapes each link

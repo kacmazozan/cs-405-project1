@@ -6,6 +6,10 @@
  *   drag a control point            move it (Bézier: C¹ is kept at every joint)
  *   alt + click a control point     delete it (Bézier: a handle deletes its anchor)
  *
+ * Bonus: "freehand trace" turns a drag over the painting into a stroke and
+ * fits a C¹ piecewise Bézier to it by least squares (math/fit.js); "swept
+ * surface" revolves or extrudes the curve into a mesh (scene/sweep.js).
+ *
  * Control points are picked in SCREEN space (project each point with P·V and
  * compare pixel distances) and placed in WORLD space (cast a ray through the
  * pixel and intersect the painting plane z = 0).
@@ -14,7 +18,9 @@ import * as Curve from './curve.js';
 import { curveToJSON, curveFromJSON, downloadJSON } from './curveExport.js';
 import { deCasteljau } from '../math/curves.js';
 import * as vec3 from '../math/vec3.js';
-import * as mat4 from '../math/mat4.js';
+import { fitPiecewiseC1 } from '../math/fit.js';
+import { sweepMesh, SWEEPS } from './sweep.js';
+import { Mesh } from '../render/mesh.js';
 import { SceneNode } from './node.js';
 import { screenRay, intersectZPlane, toScreen } from './camera.js';
 import { hex } from '../render/colour.js';
@@ -43,18 +49,29 @@ const DEFAULTS = {
   constantSpeed: false,
   phase: 0.3,
   samples: 32,
+  freehand: false,
+  fitSegments: 5,
+  sweep: false,
+  sweepMode: SWEEPS[0],
+  depth: 0.15,
 };
 
-export function createCurveEditor({ root, meshes, panel, painting, view, paintingId }) {
+export function createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId }) {
   const state = { ...DEFAULTS };
   const curves = new Map(); // painting id → curve, so each painting keeps its own
   let curve = null;
   let hover = -1, dragging = -1;
   let message = '';
+  let stroke = null, drawing = false; // freehand trace (bonus)
 
   // An object that rides along the curve, oriented by the tangent (a scene-graph node).
   const follower = root.addChild(new SceneNode('curve follower'));
   follower.data = { mesh: meshes.cone, colour: [...hex('#ff3b5c'), 1], showAxes: true };
+
+  // The swept surface (bonus), rebuilt whenever the curve or its settings change.
+  const sweep = root.addChild(new SceneNode('swept surface'));
+  sweep.data = { mesh: new Mesh(gpu.device, new Float32Array(0), 'swept surface'), colour: [...hex('#d6cf73'), 1], hidden: true, showAxes: true };
+  let sweepKey = '';
 
   /* ---------------- panel ---------------- */
   const f = panel.folder('D · Curves');
@@ -81,6 +98,34 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
   f.button('import JSON', () => fileInput.click());
   f.button('reset curve', () => { setCurve(Curve.presetCurve(curve.painting, painting.aspect)); });
   f.button('clear', () => { curve.points = []; curve.closed = false; refreshUI(); });
+
+  const bf = panel.folder('Bonus · fitting & surfaces');
+  bf.note('freehand: drag over the painting, release → least-squares C¹ Bézier fit (ends close together → closed curve)');
+  const bonusUI = [
+    bf.toggle('freehand trace (fit on release)', state, 'freehand'),
+    bf.slider('fit segments', state, 'fitSegments', 1, 12, 1),
+    bf.toggle('swept surface from the curve', state, 'sweep'),
+    bf.slider('extrude depth', state, 'depth', 0.02, 0.6, 0.01),
+  ];
+  const sweepSel = bf.select('sweep', SWEEPS, state.sweepMode, (v) => (state.sweepMode = v));
+
+  /** Fit the finished stroke and make it the current curve. */
+  function finishStroke() {
+    drawing = false;
+    if (!stroke || stroke.length < 8) { message = 'stroke too short to fit'; stroke = null; return; }
+    let len = 0;
+    for (let k = 1; k < stroke.length; k++) len += Math.hypot(stroke[k][0] - stroke[k - 1][0], stroke[k][1] - stroke[k - 1][1]);
+    const last = stroke[stroke.length - 1];
+    const closed = Math.hypot(last[0] - stroke[0][0], last[1] - stroke[0][1]) < 0.06 * len;
+    const fit = fitPiecewiseC1(stroke, state.fitSegments, closed);
+    curve.kind = 'bezier-c1';
+    curve.closed = closed;
+    curve.points = fit.points;
+    refreshUI();
+    const px = painting.size ? painting.size[1] / 2 : 1; // world units → painting pixels
+    message = `least-squares fit: ${fit.segments} segment${fit.segments === 1 ? '' : 's'}, ` +
+      `RMS error ${(fit.rms * px).toFixed(2)} px (${stroke.length} stroke points)`;
+  }
 
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
@@ -159,6 +204,13 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
 
     /* ---------------- pointer ---------------- */
     pointerDown(e) {
+      if (state.freehand && e.button === 0) {
+        const p = planePoint(e, false);
+        if (!p) return false;
+        stroke = [p];
+        drawing = true;
+        return true;
+      }
       if (!state.edit || e.button !== 0) return false;
       const i = pick(e);
       if (i >= 0 && e.alt) {
@@ -177,11 +229,19 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
       return false;
     },
     pointerDrag(e) {
+      if (drawing) {
+        const p = planePoint(e, true), q = stroke[stroke.length - 1];
+        if (p && Math.hypot(p[0] - q[0], p[1] - q[1]) > 0.004) stroke.push(p);
+        return;
+      }
       if (dragging < 0) return;
       const p = planePoint(e, true);
       if (p) Curve.movePoint(curve, dragging, p);
     },
-    pointerUp() { dragging = -1; },
+    pointerUp() {
+      if (drawing) finishStroke();
+      dragging = -1;
+    },
     pointerMove(e) {
       hover = state.edit ? pick(e) : -1;
       view.canvas.style.cursor = hover >= 0 ? 'grab' : '';
@@ -212,6 +272,14 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
       }
 
       const segs = Curve.segmentCount(curve);
+      sweep.data.hidden = !state.sweep || segs === 0;
+      if (!sweep.data.hidden) {
+        const key = `${state.sweepMode}|${state.depth}|${curve.kind}|${curve.closed}|${curve.points.flat().join(',')}`;
+        if (key !== sweepKey) {
+          sweepKey = key;
+          sweep.data.mesh.update(sweepMesh(Curve.sample(curve, 16), { mode: state.sweepMode, closed: curve.closed, depth: state.depth }));
+        }
+      }
       const err = curve.kind === 'bezier-c1' ? Curve.c1Error(curve) : 0;
       const uv = (p) => Curve.worldToUV(p, curve.aspect).map((x) => x.toFixed(3)).join(', ');
       const sel = dragging >= 0 ? dragging : hover;
@@ -227,6 +295,8 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
     /** Queue this frame's curve drawing into the overlay. */
     drawOverlay(overlay) {
       const P = curve.points;
+      // the freehand stroke (kept after the fit, to compare with the fitted curve)
+      if (stroke && state.freehand) overlay.polyline(stroke.map((p) => lift(p, LIFT * 2)), hex('#ff5ad7'), 1.5);
       const bez = curve.kind === 'bezier-c1';
 
       // control polygon (Bézier: only the handle arms, anchor ↔ handle)
@@ -278,6 +348,9 @@ export function createCurveEditor({ root, meshes, panel, painting, view, paintin
     reset() {
       Object.assign(state, DEFAULTS);
       ui.forEach((c) => c.update());
+      bonusUI.forEach((c) => c.update());
+      sweepSel.set(state.sweepMode);
+      stroke = null;
     },
   };
 }

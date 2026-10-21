@@ -10,6 +10,7 @@
  */
 import * as mat4 from '../math/mat4.js';
 import * as vec3 from '../math/vec3.js';
+import * as quat from '../math/quat.js';
 import { NotImplemented } from '../math/todo.js';
 
 export function createCamera() {
@@ -24,6 +25,7 @@ export function createCamera() {
     far: 20,
     projection: 'perspective', // or 'orthographic'
     orthoHeight: 2.2, // world units visible vertically in orthographic mode
+    transition: null, // set by setView(): a smooth move to a preset view
   };
 }
 
@@ -67,28 +69,32 @@ function fitMatrix(aspect, paintingAspect) {
 }
 
 /* ------------------------------------------------- orbit controls ------- */
-/* The camera orbits its target on a sphere: eye = target + r·(cos φ sin θ,  */
-/* sin φ, cos φ cos θ) with azimuth θ around +y and elevation φ.             */
+/* Quaternion orbit (bonus): the eye's offset from the target is rotated by a  */
+/* quaternion — about the world y axis (azimuth), then about the camera's own  */
+/* right axis (elevation). Elevation is clamped short of the poles so the      */
+/* camera never rolls over the top.                                            */
 
-const MAX_ELEVATION = (89 * Math.PI) / 180; // stop short of the poles: no sudden flip
+const MAX_ELEVATION = (89 * Math.PI) / 180;
 
-function spherical(cam) {
-  const off = vec3.sub(cam.eye, cam.target);
-  const r = vec3.length(off) || 1e-6;
-  return { r, azimuth: Math.atan2(off[0], off[2]), elevation: Math.asin(Math.max(-1, Math.min(1, off[1] / r))) };
-}
-
-function placeOnSphere(cam, r, azimuth, elevation) {
-  const c = Math.cos(elevation);
-  cam.eye = vec3.add(cam.target, vec3.scale([c * Math.sin(azimuth), Math.sin(elevation), c * Math.cos(azimuth)], r));
-  cam.up = [0, 1, 0];
+/** The camera's orientation as a quaternion: the rotation with columns s, u, −f (rows of V). */
+export function orientation(cam) {
+  const V = mat4.lookAt(cam.eye, cam.target, cam.up);
+  return quat.fromBasis([V[0], V[4], V[8]], [V[1], V[5], V[9]], [V[2], V[6], V[10]]);
 }
 
 /** Rotate around the target (angles in radians). */
 export function orbit(cam, dAzimuth, dElevation) {
-  const { r, azimuth, elevation } = spherical(cam);
-  const el = Math.max(-MAX_ELEVATION, Math.min(MAX_ELEVATION, elevation + dElevation));
-  placeOnSphere(cam, r, azimuth + dAzimuth, el);
+  cam.transition = null; // the user takes over
+  const off = vec3.sub(cam.eye, cam.target);
+  const r = vec3.length(off) || 1e-6;
+  const el = Math.asin(Math.max(-1, Math.min(1, off[1] / r)));
+  const dEl = Math.max(-MAX_ELEVATION, Math.min(MAX_ELEVATION, el + dElevation)) - el;
+  const V = mat4.lookAt(cam.eye, cam.target, cam.up);
+  const right = [V[0], V[4], V[8]];
+  // about `right`, a positive angle swings the eye DOWN (+z → −y), so use −dEl
+  const q = quat.multiply(quat.fromAxisAngle([0, 1, 0], dAzimuth), quat.fromAxisAngle(right, -dEl));
+  cam.eye = vec3.add(cam.target, quat.rotate(q, off));
+  cam.up = [0, 1, 0];
 }
 
 /**
@@ -97,6 +103,7 @@ export function orbit(cam, dAzimuth, dElevation) {
  * visible height shrinks instead.
  */
 export function zoom(cam, factor) {
+  cam.transition = null;
   if (cam.projection === 'orthographic') {
     cam.orthoHeight = Math.max(0.05, Math.min(50, cam.orthoHeight * factor));
     return;
@@ -108,6 +115,7 @@ export function zoom(cam, factor) {
 
 /** Slide eye and target sideways / up by a fraction of the view (NDC units). */
 export function pan(cam, dxNdc, dyNdc, aspect) {
+  cam.transition = null;
   // the camera's own right / up axes are the first two rows of V (also in the top view)
   const V = mat4.lookAt(cam.eye, cam.target, cam.up);
   const right = [V[0], V[4], V[8]], up = [V[1], V[5], V[9]];
@@ -128,11 +136,39 @@ export const VIEWS = {
   top: { eye: [0, 2.8, 0], up: [0, 1, 0] },
 };
 
-export function setView(cam, name) {
+/**
+ * Go to a preset view. With `animate`, the camera flies there: the target and
+ * the distance are interpolated linearly and the ORIENTATION by quaternion slerp,
+ * so the camera turns at a steady rate along the shortest arc (no gimbal
+ * problems, even into the straight-down "top" view).
+ */
+export function setView(cam, name, animate = true) {
   const v = VIEWS[name];
-  cam.target = [0, 0, 0];
-  cam.eye = [...v.eye];
-  cam.up = [...v.up];
+  const to = { eye: [...v.eye], target: [0, 0, 0], up: [...v.up] };
+  if (!animate) { Object.assign(cam, to); cam.transition = null; return; }
+  const dist = (c) => vec3.length(vec3.sub(c.eye, c.target));
+  cam.transition = {
+    t: 0,
+    duration: 0.9,
+    from: { q: orientation(cam), target: [...cam.target], d: dist(cam) },
+    to: { q: orientation(to), target: to.target, d: dist(to) },
+  };
+}
+
+/** Advance a running view transition by dt seconds (call once per frame). */
+export function updateCamera(cam, dt) {
+  const tr = cam.transition;
+  if (!tr) return;
+  tr.t = Math.min(1, tr.t + dt / tr.duration);
+  const k = tr.t * tr.t * (3 - 2 * tr.t); // smoothstep: ease in and out
+  const q = quat.slerp(tr.from.q, tr.to.q, k);
+  const target = tr.from.target.map((x, i) => x + (tr.to.target[i] - x) * k);
+  const d = tr.from.d + (tr.to.d - tr.from.d) * k;
+  // the camera's +z axis points from the target back to the eye
+  cam.target = target;
+  cam.eye = vec3.add(target, vec3.scale(quat.rotate(q, [0, 0, 1]), d));
+  cam.up = quat.rotate(q, [0, 1, 0]);
+  if (tr.t >= 1) cam.transition = null;
 }
 
 /**

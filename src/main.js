@@ -10,7 +10,7 @@ import { initWebGPU, showFatal } from './render/gpu.js';
 import { Renderer } from './render/renderer.js';
 import { Painting } from './render/painting.js';
 import {
-  createCamera, createInspectionCamera, viewProjection, frustumLines, orbit, zoom, pan, setView, VIEWS,
+  createCamera, createInspectionCamera, viewProjection, frustumLines, orbit, zoom, pan, setView, updateCamera, VIEWS,
 } from './scene/camera.js';
 import { hex } from './render/colour.js';
 import { createScene } from './scene/scene.js';
@@ -121,6 +121,7 @@ async function main() {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
 
+    updateCamera(camera, dt);
     scene.update(dt, now / 1000);
 
     const aspect = canvas.width / canvas.height;

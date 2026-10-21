@@ -8,7 +8,8 @@
  *
  *   world ─┬─ objects (Part A: melon, pedestal, cone, T·R·S demo + ghost)
  *          ├─ arm     (Part B: robot arm, see arm.js)
- *          └─ curve follower (Part D: rides along the curve)
+ *          ├─ curve follower (Part D: rides along the curve)
+ *          └─ swept surface  (bonus: the curve revolved / extruded)
  *
  * Every mesh node is drawn with  mvp = viewProj · node.world.
  */
@@ -44,7 +45,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   const root = new SceneNode('world');
   const objects = createObjects({ root, meshes, panel });
   const arm = createArm({ root, meshes, panel });
-  const curves = createCurveEditor({ root, meshes, panel, painting, view, paintingId });
+  const curves = createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId });
 
   // the scene graph as text (Part B)
   const g = panel.folder('Scene graph', { open: false });
@@ -80,7 +81,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
      */
     draw(pass, viewProj, extra) {
       const nodes = visibleNodes(root);
-      const drawn = nodes.filter((n) => n.data.mesh);
+      const drawn = nodes.filter((n) => n.data.mesh?.count > 0);
       // opaque first; see-through objects last so what is behind them is already there
       drawn.sort((a, b) => (b.data.colour[3] ?? 1) - (a.data.colour[3] ?? 1));
       meshRenderer.begin(view.camera.eye, drawn.length);
