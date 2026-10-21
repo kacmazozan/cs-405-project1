@@ -9,7 +9,7 @@ import './ui/style.css';
 import { initWebGPU, showFatal } from './render/gpu.js';
 import { Renderer } from './render/renderer.js';
 import { Painting } from './render/painting.js';
-import { createCamera, viewProjection } from './scene/camera.js';
+import { createCamera, viewProjection, orbit, zoom, pan, setView, VIEWS } from './scene/camera.js';
 import { createScene } from './scene/scene.js';
 import { createPanel } from './ui/panel.js';
 import { Stats } from './ui/stats.js';
@@ -41,27 +41,67 @@ async function main() {
     async (id) => {
       current = PAINTINGS.find((p) => p.id === id);
       await painting.load(paintingURL(current));
+      scene.setPainting(id);
       history.replaceState(null, '', `?painting=${id}`);
     });
 
   const camera = createCamera();
-  const cf = panel.folder('Camera');
-  const camStatus = cf.text('');
-  cf.select('projection', ['perspective', 'orthographic'], camera.projection, (v) => (camera.projection = v));
-  const camReadout = cf.text('');
+  // what the scene needs for picking: the camera and this frame's P · V
+  const view = { camera, canvas, aspect: 1, viewProj: mat4.identity() };
 
-  const scene = createScene({ gpu, renderer, painting, panel });
+  const cf = panel.folder('C · Camera');
+  const camStatus = cf.text('');
+  const projSel = cf.select('projection', ['perspective', 'orthographic'], camera.projection, (v) => (camera.projection = v));
+  const camUI = { fovDeg: camera.fovY * 180 / Math.PI };
+  const camSliders = [
+    cf.slider('fov y (°)', camUI, 'fovDeg', 10, 120, 1, (v) => (camera.fovY = v * Math.PI / 180)),
+    cf.slider('near', camera, 'near', 0.01, 2, 0.01),
+    cf.slider('far', camera, 'far', 3, 200, 1),
+    cf.slider('ortho height', camera, 'orthoHeight', 0.2, 10, 0.05),
+  ];
+  for (const name of Object.keys(VIEWS)) cf.button(name, () => setView(camera, name));
+  cf.note('drag: orbit · right/middle-drag: pan · wheel: zoom');
+  const camReadout = cf.text('');
+  const mf = panel.folder('C · Matrices', { open: false });
+  mf.note('V = lookAt(eye, target, up)');
+  const viewText = mf.text('');
+  mf.note('P (WebGPU depth 0…1)');
+  const projText = mf.text('');
+
+  const scene = createScene({ gpu, renderer, painting, panel, view, paintingId: current.id });
 
   const vf = panel.folder('View');
-  vf.button('reset', () => { Object.assign(camera, createCamera()); scene.reset(); });
+  vf.button('reset', () => {
+    Object.assign(camera, createCamera());
+    camUI.fovDeg = camera.fovY * 180 / Math.PI;
+    camSliders.forEach((s) => s.update());
+    projSel.set(camera.projection);
+    scene.reset();
+  });
   vf.note(gpu.encodeSRGB ? 'sRGB: encoded in shader (fallback)' : 'sRGB: canvas -srgb view');
 
   /* -------------- input --------------- */
+  // A press either grabs a curve point (Part D) or moves the camera (Part C).
+  let mode = null;
   attachPointer(canvas, {
-    // TODO (Part C): orbit the camera on drag, zoom on wheel.
-    // TODO (Part D): pick / drag control points on the painting.
-    drag(e) {},
-    wheel(e) {},
+    down(e) {
+      if (scene.pointerDown(e)) mode = 'scene';
+      else mode = e.button === 0 ? 'orbit' : 'pan';
+    },
+    drag(e) {
+      if (mode === 'scene') scene.pointerDrag(e);
+      else if (mode === 'orbit') orbit(camera, -e.dx * 0.008, e.dy * 0.008);
+      else if (mode === 'pan') pan(camera, (2 * e.dx) / canvas.clientWidth, (-2 * e.dy) / canvas.clientHeight, view.aspect);
+    },
+    up(e) {
+      if (mode === 'scene') scene.pointerUp(e);
+      mode = null;
+    },
+    move(e) { scene.pointerMove(e); },
+    wheel(e) {
+      zoom(camera, Math.exp(e.delta * 0.001));
+      camSliders[3].update();
+    },
   });
 
   /* ------------ render loop ----------- */
@@ -75,6 +115,8 @@ async function main() {
 
     const aspect = canvas.width / canvas.height;
     const vp = viewProjection(camera, aspect, painting.aspect);
+    view.aspect = aspect;
+    view.viewProj = vp.matrix;
     camStatus.set(vp.fallback
       ? `PLACEHOLDER view (no camera yet)\n${vp.missing}`
       : `camera: P · V (${camera.projection})`);
@@ -84,6 +126,13 @@ async function main() {
       `target ${camera.target.map((x) => x.toFixed(2)).join(', ')}\n` +
       `fovY ${(camera.fovY * 180 / Math.PI).toFixed(1)}°  near ${camera.near}  far ${camera.far}`
     );
+
+    {
+      viewText.set(mat4.format(mat4.lookAt(camera.eye, camera.target, camera.up)));
+      projText.set(mat4.format(camera.projection === 'orthographic'
+        ? mat4.orthographic(-camera.orthoHeight / 2 * aspect, camera.orthoHeight / 2 * aspect, -camera.orthoHeight / 2, camera.orthoHeight / 2, camera.near, camera.far)
+        : mat4.perspective(camera.fovY, aspect, camera.near, camera.far)));
+    }
 
     const paintingMVP = vp.fallback ? vp.matrix : mat4.multiply(vp.matrix, painting.model);
     renderer.render((pass) => {

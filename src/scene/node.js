@@ -6,7 +6,6 @@
  * Tests: tests/node.test.js
  */
 import * as mat4 from '../math/mat4.js';
-import { todo } from '../math/todo.js';
 
 // A literal identity so nodes can be created before mat4.identity() exists.
 const I = () => new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
@@ -35,12 +34,15 @@ export class SceneNode {
   }
 
   /**
-   * TODO (Part B): set this.world from parentWorld and this.local, then
-   * update every child recursively. Called on the root with no argument.
+   * Set this.world from parentWorld and this.local, then update every child
+   * recursively (a depth-first, pre-order traversal: a parent's world matrix
+   * is always ready before its children need it). Called on the root with no
+   * argument.
    * @param {Float32Array} [parentWorld]  world matrix of the parent (identity for the root)
    */
   updateWorld(parentWorld) {
-    return todo('SceneNode.updateWorld');
+    this.world = parentWorld ? mat4.multiply(parentWorld, this.local) : new Float32Array(this.local);
+    for (const c of this.children) c.updateWorld(this.world);
   }
 
   /** Visit this node and all descendants depth-first: fn(node, depth). */

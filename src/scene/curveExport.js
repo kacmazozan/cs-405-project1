@@ -18,11 +18,57 @@
  * The painting quad spans x ∈ [−a, a], y ∈ [−1, 1] at z = 0 (a = image
  * width / height), so  u = (x + a) / (2a)  and  v = (1 − y) / 2.
  */
-import { todo } from '../math/todo.js';
+import { KINDS, segments, worldToUV, uvToWorld } from './curve.js';
 
-/** TODO (Part D): build the object above from your curve data. */
+const round = (x) => Math.round(x * 1e4) / 1e4; // 0.0001 ≈ a tenth of a pixel
+
+/**
+ * Build the object above from a curve of scene/curve.js (world x, y on the
+ * painting plane). Every control point goes through
+ *     u = (x + a) / (2a),   v = (1 − y) / 2.
+ * A closed spline is written "unrolled" (its last point first, its first two
+ * points again at the end), so the usual open evaluation of `points` gives
+ * exactly the closed curve that was drawn.
+ */
 export function curveToJSON(curve) {
-  return todo('curveToJSON');
+  const uv = (p) => worldToUV(p, curve.aspect).map(round);
+  const out = { painting: curve.painting, kind: curve.kind };
+  if (curve.kind === 'bezier-c1') {
+    out.segments = segments(curve).map((seg) => seg.map(uv));
+  } else {
+    const P = curve.points;
+    const pts = curve.closed && P.length >= 3 ? [P[P.length - 1], ...P, P[0], P[1]] : P;
+    out.points = pts.map(uv);
+  }
+  return out;
+}
+
+/**
+ * The inverse of curveToJSON, for loading a saved curve onto a painting with
+ * the given aspect. A Bézier whose last P3 equals its first P0 comes back closed.
+ */
+export function curveFromJSON(obj, aspect) {
+  if (!obj || !KINDS.includes(obj.kind)) throw new Error(`unknown curve kind: ${obj?.kind}`);
+  const world = (p) => {
+    if (!Array.isArray(p) || p.length < 2 || !p.every(Number.isFinite)) throw new Error('bad control point');
+    return uvToWorld(p, aspect);
+  };
+  const curve = { painting: obj.painting, aspect, kind: obj.kind, closed: false, points: [] };
+  if (obj.kind === 'bezier-c1') {
+    const segs = obj.segments ?? [];
+    segs.forEach((seg, i) => {
+      if (!Array.isArray(seg) || seg.length !== 4) throw new Error(`segment ${i} needs 4 points`);
+      curve.points.push(...(i === 0 ? seg : seg.slice(1)).map(world));
+    });
+    const P = curve.points;
+    if (segs.length >= 2 && Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) < 1e-3) {
+      P.pop();
+      curve.closed = true;
+    }
+  } else {
+    curve.points = (obj.points ?? []).map(world);
+  }
+  return curve;
 }
 
 /** Provided: save any object as a .json download in the browser. */
