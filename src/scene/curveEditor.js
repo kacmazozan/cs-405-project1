@@ -22,11 +22,10 @@ import { fitPiecewiseC1 } from '../math/fit.js';
 import { sweepMesh, SWEEPS } from './sweep.js';
 import { Mesh } from '../render/mesh.js';
 import { SceneNode } from './node.js';
-import { screenRay, intersectZPlane, toScreen } from './camera.js';
+import { planePoint as hitPlane, pickPoint } from './picking.js';
 import { hex } from '../render/colour.js';
 
 const LIFT = 0.004; // draw the curve just in front of the painting (no z-fighting)
-const PICK_PX = 11;
 
 const COL = {
   curve: hex('#ffd23f'),
@@ -42,7 +41,7 @@ const COL = {
 const DEFAULTS = {
   edit: true,
   polygon: true,
-  construction: true,
+  construction: false, // the single-Bézier demo (bezierDemo.js) shows it by default
   tangent: true,
   follower: true,
   animate: true,
@@ -63,6 +62,7 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
   let hover = -1, dragging = -1;
   let message = '';
   let stroke = null, drawing = false; // freehand trace (bonus)
+  let enabled = true; // false while only the single-Bézier demo is shown
 
   // An object that rides along the curve, oriented by the tangent (a scene-graph node).
   const follower = root.addChild(new SceneNode('curve follower'));
@@ -168,26 +168,10 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
   const lift = (p, z = LIFT) => [p[0], p[1], z];
 
   /** Painting-plane point under the pointer, or null (outside the painting / parallel). */
-  function planePoint(e, clampToPainting) {
-    const hit = intersectZPlane(screenRay(view.camera, view.aspect, e.ndc), 0);
-    if (!hit) return null;
-    const a = painting.aspect;
-    if (clampToPainting) return [Math.max(-a, Math.min(a, hit[0])), Math.max(-1, Math.min(1, hit[1]))];
-    return Math.abs(hit[0]) <= a && Math.abs(hit[1]) <= 1 ? [hit[0], hit[1]] : null;
-  }
+  const planePoint = (e, clampToPainting) => hitPlane(view, painting.aspect, e.ndc, clampToPainting);
 
-  /** Index of the control point within PICK_PX of the pointer, or −1. */
-  function pick(e) {
-    const { canvas, viewProj } = view;
-    let best = -1, bestD = PICK_PX;
-    curve.points.forEach((p, i) => {
-      const s = toScreen(viewProj, lift(p), canvas.clientWidth, canvas.clientHeight);
-      if (!s) return;
-      const d = Math.hypot(s[0] - e.px[0], s[1] - e.px[1]);
-      if (d < bestD) { bestD = d; best = i; }
-    });
-    return best;
-  }
+  /** Index of the control point under the pointer, or −1. */
+  const pick = (e) => pickPoint(view, curve.points, e.px, LIFT);
 
   /** Current position on the curve: global parameter u from the "position" slider. */
   function currentU() {
@@ -201,9 +185,13 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
   return {
     get curve() { return curve; },
     setPainting,
+    /** Show / hide the whole piecewise curve (overlay, follower, swept surface, mouse). */
+    set enabled(v) { enabled = v; if (!v) { hover = dragging = -1; drawing = false; } },
+    get enabled() { return enabled; },
 
     /* ---------------- pointer ---------------- */
     pointerDown(e) {
+      if (!enabled) return false;
       if (state.freehand && e.button === 0) {
         const p = planePoint(e, false);
         if (!p) return false;
@@ -242,9 +230,10 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
       if (drawing) finishStroke();
       dragging = -1;
     },
+    /** @returns {boolean} true when a control point is under the pointer */
     pointerMove(e) {
-      hover = state.edit ? pick(e) : -1;
-      view.canvas.style.cursor = hover >= 0 ? 'grab' : '';
+      hover = enabled && state.edit ? pick(e) : -1;
+      return hover >= 0;
     },
 
     /* ---------------- frame ---------------- */
@@ -254,7 +243,7 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
         ui[7].update();
       }
       const at = Curve.evaluate(curve, currentU());
-      follower.data.hidden = !state.follower || !at;
+      follower.data.hidden = !enabled || !state.follower || !at;
       if (at) {
         // frame from the tangent: y axis along the curve (the cone points that way),
         // z axis = the painting's normal, x = y × z completes a right-handed basis
@@ -272,7 +261,7 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
       }
 
       const segs = Curve.segmentCount(curve);
-      sweep.data.hidden = !state.sweep || segs === 0;
+      sweep.data.hidden = !enabled || !state.sweep || segs === 0;
       if (!sweep.data.hidden) {
         const key = `${state.sweepMode}|${state.depth}|${curve.kind}|${curve.closed}|${curve.points.flat().join(',')}`;
         if (key !== sweepKey) {
@@ -294,6 +283,7 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
 
     /** Queue this frame's curve drawing into the overlay. */
     drawOverlay(overlay) {
+      if (!enabled) return;
       const P = curve.points;
       // the freehand stroke (kept after the fit, to compare with the fitted curve)
       if (stroke && state.freehand) overlay.polyline(stroke.map((p) => lift(p, LIFT * 2)), hex('#ff5ad7'), 1.5);

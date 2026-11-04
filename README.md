@@ -65,14 +65,27 @@ the transparent blue *ghost* with the other order:
 *shoulder*, *elbow*, *wrist* and *grip* angles by hand. The readout shows the
 gripper tip's world position (product of every matrix along the chain).
 
-**D · Curves**
+**D · Bézier & de Casteljau** — one cubic Bézier with four control points
+P0…P3 on the painting (on *kavunlu* it traces the top contour of the melon;
+drag the points to move them).
+- *on the painting* — show this single Bézier, the piecewise curve below, or both.
+- *t* — the curve parameter t ∈ [0, 1]; *animate t* sweeps it back and forth.
+- de Casteljau's construction at t is always drawn: grey = control polygon
+  (level 0), green = level 1 (3 points), blue = level 2 (2 points, the segment is
+  tangent to the curve), red = B(t). *tangent at t* adds B′(t)/3 in pink.
+- The readout shows the four Bernstein weights at t, the point computed as
+  Σ Bᵢ(t)·Pᵢ and by de Casteljau (with their difference), a check that
+  B′(t) = 3·(level-2 segment), and the (u, v) of the hovered point.
+
+**D · Curves** — the piecewise curve (on *kavunlu*: the outline of the melon slice).
 - *kind* — `bezier-c1`, `catmull-rom` or `bspline`. Converting a spline to
   Bézier is exact; Catmull-Rom ↔ B-spline keeps the control points, so the
   same points can be compared interpolated vs approximated.
 - *closed* — close or open the curve.
 - *edit with the mouse* — turns the mouse editing above on or off.
 - *control polygon*, *de Casteljau construction*, *tangent* — what is drawn at
-  the current position (the construction works on every kind, through its Bézier form).
+  the current position (the construction works on every kind, through its Bézier
+  form; it is off by default because the single Bézier above already shows it).
 - *follower object* — a cone that rides along the curve, oriented by the tangent.
 - *animate*, *position* — the global parameter u ∈ [0, 1] (segment i covers [i/n, (i+1)/n]).
 - *constant speed (arc length)* — re-parametrise by arc length so the follower moves at constant speed.
@@ -130,14 +143,16 @@ A closed Bézier curve's last P3 equals its first P0.
 | `src/scene/objects.js` | Part A objects and the T·R·S demo |
 | `src/scene/arm.js` | Part B robot arm |
 | `src/scene/curve.js` | curve model: evaluation, C¹ editing, conversions, arc length, presets |
-| `src/scene/curveEditor.js` | Part D UI, picking, drawing, follower |
+| `src/scene/bezierDemo.js` | Part D: one cubic Bézier, de Casteljau at an adjustable t |
+| `src/scene/curveEditor.js` | Part D: piecewise curve editor, drawing, follower |
+| `src/scene/picking.js` | mouse ray → painting plane, screen-space point picking |
 | `src/scene/curveExport.js` | JSON export / import |
 | `src/scene/shapes.js`, `geometry.js` | sphere, cylinder, cone; cube, axes |
 | `src/render/mesh.js` | lit mesh pipeline; one uniform slot per draw (dynamic offsets) |
 | `src/render/overlay.js` | thick lines and point markers (instanced quads) |
 | `src/render/*` (others) | WebGPU setup, painting, textures, sRGB handling (provided) |
 | `src/ui/*` | panel, stats, pointer events (provided) |
-| `tests/` | unit tests (`curve.test.js`, `camera.test.js` and `bonus.test.js` are ours, the rest are the course's) |
+| `tests/` | unit tests (`curve.test.js`, `camera.test.js`, `bonus.test.js` and `bezierDemo.test.js` are ours, the rest are the course's) |
 
 ### Scene graph
 

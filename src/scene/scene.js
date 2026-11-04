@@ -19,6 +19,7 @@ import { sphere, cylinder, cone } from './shapes.js';
 import { createObjects } from './objects.js';
 import { createArm } from './arm.js';
 import { createCurveEditor } from './curveEditor.js';
+import { createBezierDemo } from './bezierDemo.js';
 import { Mesh, MeshRenderer } from '../render/mesh.js';
 import { Overlay } from '../render/overlay.js';
 import * as mat4 from '../math/mat4.js';
@@ -45,7 +46,8 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   const root = new SceneNode('world');
   const objects = createObjects({ root, meshes, panel });
   const arm = createArm({ root, meshes, panel });
-  const curves = createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId });
+  const bezier = createBezierDemo({ panel, painting, view, paintingId }); // Part D: one Bézier + de Casteljau
+  const curves = createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId }); // Part D: piecewise
 
   // the scene graph as text (Part B)
   const g = panel.folder('Scene graph', { open: false });
@@ -53,6 +55,8 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   root.traverse((n, d) => { tree += `${'  '.repeat(d)}${n.data.mesh ? '■' : '○'} ${n.name}\n`; });
   g.text(tree.trimEnd());
   g.note('○ transform-only node · ■ node with a mesh');
+
+  let grabbed = null; // which curve owns the current drag
 
   /** Visible nodes, skipping hidden subtrees. */
   function visibleNodes(node, out = []) {
@@ -70,6 +74,8 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       arm.node.data.hidden = !state.showArm;
       objects.update(dt, time);
       arm.update(dt, time);
+      curves.enabled = bezier.showsPiecewise;
+      bezier.update(dt, time);
       curves.update(dt, time);
       root.updateWorld();
       arm.afterUpdate();
@@ -99,6 +105,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
         }
       }
       curves.drawOverlay(overlay);
+      bezier.drawOverlay(overlay);
       extra?.(overlay);
       overlay.draw(pass, viewProj);
     },
@@ -107,12 +114,21 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       objects.reset();
       arm.reset();
       curves.reset();
+      bezier.reset();
     },
 
-    setPainting(id) { curves.setPainting(id); },
-    pointerDown: (e) => curves.pointerDown(e),
-    pointerDrag: (e) => curves.pointerDrag(e),
-    pointerUp: (e) => curves.pointerUp(e),
-    pointerMove: (e) => curves.pointerMove(e),
+    setPainting(id) { curves.setPainting(id); bezier.setPainting(id); },
+
+    // The single Bézier's four points get the first chance at a click, then the editor.
+    pointerDown(e) {
+      grabbed = bezier.pointerDown(e) ? bezier : curves.pointerDown(e) ? curves : null;
+      return grabbed !== null;
+    },
+    pointerDrag: (e) => grabbed?.pointerDrag(e),
+    pointerUp(e) { grabbed?.pointerUp(e); grabbed = null; },
+    pointerMove(e) {
+      const over = bezier.pointerMove(e) | curves.pointerMove(e); // both update their hover
+      view.canvas.style.cursor = over ? 'grab' : '';
+    },
   };
 }
