@@ -66,11 +66,11 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
 
   // An object that rides along the curve, oriented by the tangent (a scene-graph node).
   const follower = root.addChild(new SceneNode('curve follower'));
-  follower.data = { mesh: meshes.cone, colour: [...hex('#ff3b5c'), 1], showAxes: true };
+  follower.data = { mesh: meshes.cone, colour: [...hex('#ff3b5c'), 1], desc: 'frame from the tangent' };
 
   // The swept surface (bonus), rebuilt whenever the curve or its settings change.
   const sweep = root.addChild(new SceneNode('swept surface'));
-  sweep.data = { mesh: new Mesh(gpu.device, new Float32Array(0), 'swept surface'), colour: [...hex('#d6cf73'), 1], hidden: true, showAxes: true };
+  sweep.data = { mesh: new Mesh(gpu.device, new Float32Array(0), 'swept surface'), colour: [...hex('#d6cf73'), 1], hidden: true, desc: 'mesh rebuilt from the curve' };
   let sweepKey = '';
 
   /* ---------------- panel ---------------- */
@@ -123,8 +123,8 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
     curve.points = fit.points;
     refreshUI();
     const px = painting.size ? painting.size[1] / 2 : 1; // world units → painting pixels
-    message = `least-squares fit: ${fit.segments} segment${fit.segments === 1 ? '' : 's'}, ` +
-      `RMS error ${(fit.rms * px).toFixed(2)} px (${stroke.length} stroke points)`;
+    message = `least-squares fit: ${fit.segments} segment${fit.segments === 1 ? '' : 's'}\n` +
+      `  RMS error ${(fit.rms * px).toFixed(2)} px, ${stroke.length} stroke points`;
   }
 
   const fileInput = document.createElement('input');
@@ -273,10 +273,10 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
       const uv = (p) => Curve.worldToUV(p, curve.aspect).map((x) => x.toFixed(3)).join(', ');
       const sel = dragging >= 0 ? dragging : hover;
       info.set(
-        `${curve.kind}${curve.closed ? ' (closed)' : ''} · ${segs} segment${segs === 1 ? '' : 's'} · ${curve.points.length} points\n` +
+        `${curve.kind}${curve.closed ? ' (closed)' : ''}\n${segs} segment${segs === 1 ? '' : 's'}, ${curve.points.length} control points\n` +
         (curve.kind === 'bezier-c1' ? `C¹ joints: ${err < 1e-4 ? 'ok' : `off by ${err.toFixed(4)}`}\n` : `continuity: C${curve.kind === 'bspline' ? '²' : '¹'} by construction\n`) +
         (at ? `u = ${currentU().toFixed(3)} → segment ${at.index}, t = ${at.t.toFixed(3)}\n` : 'add points to start a curve\n') +
-        (sel >= 0 ? `point ${sel} (${Curve.role(curve, sel)}): u,v = ${uv(curve.points[sel])}` : 'hover a point to see its (u, v)') +
+        (sel >= 0 ? `point ${sel} (${Curve.role(curve, sel)}):\n  u,v = (${uv(curve.points[sel])})` : 'hover a point: its (u, v)') +
         (message ? `\n${message}` : '')
       );
     },

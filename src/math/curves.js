@@ -54,6 +54,31 @@ export function cubicBezierTangent(p0, p1, p2, p3, t) {
   return combine([p0, p1, p2, p3], w);
 }
 
+/** Binomial coefficient C(n, k). */
+function binomial(n, k) {
+  let r = 1;
+  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+  return r;
+}
+
+/**
+ * Bernstein basis of any degree n: [B₀,ₙ(t) … Bₙ,ₙ(t)] with Bᵢ,ₙ(t) = C(n, i)·tⁱ·(1 − t)ⁿ⁻ⁱ.
+ * n = 3 gives bernstein3; n = 2 the quadratic basis (1 − t)², 2t(1 − t), t².
+ */
+export function bernstein(n, t) {
+  return Array.from({ length: n + 1 }, (_, i) => binomial(n, i) * t ** i * (1 - t) ** (n - i));
+}
+
+/** Point on the Bézier curve of degree n = points.length − 1 (3 points: quadratic, 4: cubic). */
+export function bezier(points, t) { return combine(points, bernstein(points.length - 1, t)); }
+
+/** Its derivative: B'(t) = n · Σ Bᵢ,ₙ₋₁(t)·(Pᵢ₊₁ − Pᵢ), a Bézier of degree n − 1 on the differences. */
+export function bezierTangent(points, t) {
+  const n = points.length - 1;
+  const diffs = points.slice(1).map((p, i) => p.map((x, d) => n * (x - points[i][d])));
+  return combine(diffs, bernstein(n - 1, t));
+}
+
 /**
  * de Casteljau's construction for any number of control points.
  * Returns every level, for drawing the construction:

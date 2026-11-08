@@ -14,6 +14,8 @@ for (const projection of ['perspective', 'orthographic']) {
     const xy = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
     near.forEach((p, i) => closeArr(project(PV, p), [...xy[i], 0], 1e-4));
     far.forEach((p, i) => closeArr(project(PV, p), [...xy[i], 1], 1e-4));
+    // the cross-section at the target's depth also maps onto the screen's corners
+    frustumLines(cam, aspect).section.forEach((p, i) => closeArr(project(PV, p).slice(0, 2), xy[i], 1e-4));
   });
 
   test(`${projection}: a screen ray hits the painting plane where that pixel shows it`, () => {

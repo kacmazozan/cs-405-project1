@@ -1,7 +1,10 @@
 /**
  * Frame setup: one render pass per frame into the canvas, with a depth buffer.
  * Provided. You add draw calls through the callback given to render().
+ * Added for Part C: renderInset() draws a second, smaller view on top.
  */
+import fillWGSL from './shaders/fill.wgsl?raw';
+import { createShader, fragmentConstants } from './shader.js';
 
 export const DEPTH_FORMAT = 'depth24plus';
 
@@ -20,6 +23,57 @@ export class Renderer {
   countDraw(vertexCount, instanceCount = 1) {
     this.stats.draws += 1;
     this.stats.vertices += vertexCount * instanceCount;
+  }
+
+  /**
+   * A second, smaller view drawn over the frame (picture-in-picture, Part C).
+   * It is its own command buffer, submitted AFTER the main one: queue.writeBuffer()
+   * calls made while drawing it are ordered after the main pass has executed, so
+   * every object can reuse its single uniform buffer for this second view.
+   * Call it after render(), in the same frame.
+   * @param {{x: number, y: number, w: number, h: number}} rect  device pixels, inside the canvas
+   * @param {(pass: GPURenderPassEncoder) => void} draw
+   */
+  renderInset(rect, draw) {
+    const { device, context, viewFormat } = this.gpu;
+    const target = context.getCurrentTexture();
+    const encoder = device.createCommandEncoder({ label: 'inset' });
+    const pass = encoder.beginRenderPass({
+      label: 'inset pass',
+      colorAttachments: [{ view: target.createView({ format: viewFormat }), loadOp: 'load', storeOp: 'store' }],
+      // the main pass is finished, so its depth can be cleared for this view
+      depthStencilAttachment: {
+        view: this.depth.createView(), depthClearValue: 1.0, depthLoadOp: 'clear', depthStoreOp: 'store',
+      },
+    });
+    const b = 2; // frame width in device pixels
+    this.#fill(pass, rect.x - b, rect.y - b, rect.w + 2 * b, rect.h + 2 * b, 0);
+    this.#fill(pass, rect.x, rect.y, rect.w, rect.h, 1);
+    pass.setViewport(rect.x, rect.y, rect.w, rect.h, 0, 1);
+    pass.setScissorRect(rect.x, rect.y, rect.w, rect.h);
+    draw(pass);
+    pass.end();
+    device.queue.submit([encoder.finish()]);
+  }
+
+  /** Fill a rectangle with colour `which` (0: frame, 1: background), ignoring depth. */
+  #fill(pass, x, y, w, h, which) {
+    if (!this.fillPipeline) {
+      const { device } = this.gpu;
+      const module = createShader(device, fillWGSL, 'fill');
+      this.fillPipeline = device.createRenderPipeline({
+        label: 'fill',
+        layout: 'auto',
+        vertex: { module, entryPoint: 'vs' },
+        fragment: { module, entryPoint: 'fs', targets: [{ format: this.gpu.viewFormat }], constants: fragmentConstants(this.gpu) },
+        depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: false, depthCompare: 'always' },
+      });
+    }
+    pass.setViewport(x, y, w, h, 0, 1);
+    pass.setScissorRect(x, y, w, h);
+    pass.setPipeline(this.fillPipeline);
+    pass.draw(3, 1, 0, which);
+    this.countDraw(3);
   }
 
   #ensureDepth(width, height) {

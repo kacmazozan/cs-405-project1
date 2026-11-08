@@ -26,6 +26,7 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 | Action | Effect |
 |---|---|
 | left-drag on empty space | orbit the camera around its target (quaternion rotation, elevation clamped at ±89°) |
+| drag inside the inset (top left) | always moves the main camera, never a curve point |
 | right- or middle-drag | pan (move eye and target together) |
 | mouse wheel | zoom (perspective: dolly; orthographic: change the visible height) |
 | shift + click on the painting | add a curve control point (keep dragging to place it) |
@@ -39,10 +40,15 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 
 **C · Camera**
 - *look through* — the main camera, or a fixed **inspection camera** that shows
-  the main camera's frustum (near plane blue, far plane red, eye and target).
+  the main camera's frustum: yellow edges, near plane blue, far plane red, and in
+  white the cross-section at the target's depth (what fills the main camera's screen).
   The mouse keeps moving the main camera, so you can watch its frustum move.
+- *inset: the other camera* — draws the camera you are not looking through in a
+  small view at the top left (on by default: the main view with the inspection
+  camera and its frustum next to it).
 - *projection* — perspective / orthographic.
-- *fov y*, *near*, *far*, *ortho height* — projection parameters.
+- *fov y*, *near*, *far*, *ortho height* — projection parameters (near 0.1 and
+  far 10 by default; see the report for the depth-precision reasoning).
 - *front / three-quarter / side / top* — preset views. The camera flies there
   smoothly (quaternion slerp of its orientation). *top* looks straight down with
   up parallel to the view direction, which tests the `lookAt` fallback.
@@ -51,9 +57,11 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 **C · Matrices** (collapsed) — the current view matrix V and projection matrix P.
 
 **Scene** — show or hide the Part A objects and the robot arm; *debug axes*
-draws the local frame of every transform node (x red, y green, z blue).
+draws the local frame of every node (x red, y green, z blue; the axes are drawn at
+one length, so a node's scale does not hide them).
 
-**Scene graph** (collapsed) — the whole node tree (○ = transform-only node, ■ = node with a mesh).
+**Scene graph** (collapsed) — the whole node tree with each node's local transform
+(○ = transform-only node, ■ = node with a mesh), updated live while the arm moves.
 
 **A · Transforms** — the orange cube is placed with the chosen *order*, and
 the transparent blue *ghost* with the other order:
@@ -61,26 +69,32 @@ the transparent blue *ghost* with the other order:
 - *spin* animates the angle.
 - Both T·R·S and S·R·T are printed as 4×4 matrices.
 
-**B · Scene graph (robot arm)** — *animate*, or set the *turret yaw*,
-*shoulder*, *elbow*, *wrist* and *grip* angles by hand. The readout shows the
-gripper tip's world position (product of every matrix along the chain).
+**B · Scene graph (robot arm)** — the arm carries a fruit (a child of the wrist).
+*animate*, or set the *turret yaw*, *shoulder*, *elbow*, *wrist* and *grip* angles
+by hand. The readout shows the world matrix of the leaf node `tip` (the product of
+every matrix along the chain) and its position.
 
 **D · Bézier & de Casteljau** — one cubic Bézier with four control points
 P0…P3 on the painting (on *kavunlu* it traces the top contour of the melon;
 drag the points to move them).
 - *on the painting* — show this single Bézier, the piecewise curve below, or both.
+- *degree* — cubic (4 control points, what the project asks for) or quadratic
+  (3 control points) to compare. A Bézier of degree n has n + 1 control points;
+  going from quadratic back to cubic uses degree elevation, which is exact.
 - *t* — the curve parameter t ∈ [0, 1]; *animate t* sweeps it back and forth.
-- de Casteljau's construction at t is always drawn: grey = control polygon
+- de Casteljau's construction at t is always drawn (cubic): grey = control polygon
   (level 0), green = level 1 (3 points), blue = level 2 (2 points, the segment is
-  tangent to the curve), red = B(t). *tangent at t* adds B′(t)/3 in pink.
-- The readout shows the four Bernstein weights at t, the point computed as
+  tangent to the curve), red = B(t). *tangent at t* adds B′(t)/n in pink.
+- The readout shows the Bernstein weights at t, the point computed as
   Σ Bᵢ(t)·Pᵢ and by de Casteljau (with their difference), a check that
-  B′(t) = 3·(level-2 segment), and the (u, v) of the hovered point.
+  B′(t) = n·(last level's segment), and the (u, v) of the hovered point.
 
 **D · Curves** — the piecewise curve (on *kavunlu*: the outline of the melon slice).
-- *kind* — `bezier-c1`, `catmull-rom` or `bspline`. Converting a spline to
-  Bézier is exact; Catmull-Rom ↔ B-spline keeps the control points, so the
-  same points can be compared interpolated vs approximated.
+- *kind* — `bezier-c1`, `catmull-rom` or `bspline`. The Catmull–Rom spline passes
+  through every control point (an open one repeats its end points, so the first
+  and last point are on the curve too); the uniform B-spline approximates them.
+  Converting a spline to Bézier is exact; Catmull-Rom ↔ B-spline keeps the control
+  points, so the same points can be compared interpolated vs approximated.
 - *closed* — close or open the curve.
 - *edit with the mouse* — turns the mouse editing above on or off.
 - *control polygon*, *de Casteljau construction*, *tangent* — what is drawn at
@@ -111,7 +125,9 @@ The stats box shows frame time, CPU time, draw calls and vertices per frame.
 ## Deliverables in this repository
 
 - `curves/kavunlu-curve.json` — the exported curve (outline of the melon slice).
-- `report/report.md` — the report draft; the PDF goes next to it as `report/report.pdf`.
+- `report/report.pdf` — the report. Its source is `report/report.html` (with the
+  screenshots in `report/img/`): open it in Chrome or Edge, *Print → Save as PDF*,
+  A4, default margins, "Background graphics" on. Places still to fill in are yellow.
 
 ## Curve export format
 
@@ -119,14 +135,14 @@ Control points are in normalised painting coordinates (u, v ∈ [0, 1], origin
 top-left, v down): `u = (x + a) / (2a)`, `v = (1 − y) / 2`, with a = width / height.
 
 ```json
-{ "painting": "kavunlu", "kind": "bezier-c1",
+{ "painting": "kavunlu", "kind": "bezier-c1", "closed": true,
   "segments": [[[0.186, 0.632], [0.204, 0.712], [0.33, 0.814], [0.47, 0.818]], …] }
 ```
 
-Catmull-Rom and B-spline curves use `"points": [[u, v], …]` instead. A closed
-spline is exported "unrolled" (last point first, the first two points again at
-the end), so evaluating `points` as an open spline gives the same closed curve.
-A closed Bézier curve's last P3 equals its first P0.
+Catmull-Rom and B-spline curves use `"points": [[u, v], …]` instead. `"closed"` is
+an extra key (readers that do not know it can ignore it); without it a closed
+spline could not be told apart from an open one. A closed Bézier curve's last P3
+equals its first P0.
 
 ## Code structure
 
@@ -150,6 +166,7 @@ A closed Bézier curve's last P3 equals its first P0.
 | `src/scene/shapes.js`, `geometry.js` | sphere, cylinder, cone; cube, axes |
 | `src/render/mesh.js` | lit mesh pipeline; one uniform slot per draw (dynamic offsets) |
 | `src/render/overlay.js` | thick lines and point markers (instanced quads) |
+| `src/render/renderer.js` | provided frame pass, plus `renderInset()` for the picture-in-picture view |
 | `src/render/*` (others) | WebGPU setup, painting, textures, sRGB handling (provided) |
 | `src/ui/*` | panel, stats, pointer events (provided) |
 | `tests/` | unit tests (`curve.test.js`, `camera.test.js`, `bonus.test.js` and `bezierDemo.test.js` are ours, the rest are the course's) |
@@ -171,12 +188,13 @@ world
 │        └─ elbow (Rz)
 │           ├─ elbow joint · forearm
 │           └─ wrist (Rz)
-│              ├─ wrist joint · palm · tip
+│              ├─ wrist joint · palm · tip · held fruit
 │              ├─ finger L (Rz grip) ── mesh
 │              └─ finger R (Rz −grip) ── mesh
 ├─ curve follower
 └─ swept surface (bonus)
 ```
 
-Joint nodes hold only rotation + translation; the scale that shapes each link
-lives in a leaf mesh node, so it does not stretch the nodes below it.
+28 nodes on 8 levels. Joint nodes hold only rotation + translation; the scale
+that shapes each link lives in a leaf mesh node, so it does not stretch the nodes
+below it. The fruit is a child of the wrist, so the arm carries it.

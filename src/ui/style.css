@@ -10,13 +10,15 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
   font: 13px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; }
-#gfx { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+/* the canvas fills the space left of the panel, so the panel never hides the scene */
+#gfx { position: fixed; top: 0; left: 0; width: calc(100vw - 360px); height: 100vh; display: block; touch-action: none; }
+@media (max-width: 700px) { #gfx { width: 100vw; } }
 
-.panel { position: fixed; top: 10px; right: 10px; width: 300px; max-height: calc(100vh - 20px);
+.panel { position: fixed; top: 10px; right: 10px; width: 340px; max-height: calc(100vh - 20px);
   overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 8px 10px; backdrop-filter: blur(6px); }
 .panel h1 { font-size: 14px; margin: 2px 0 6px; }
-.panel .stats, .panel .readout { font-family: var(--mono); font-size: 11.5px; white-space: pre;
+.panel .stats, .panel .readout { font-family: var(--mono); font-size: 11px; white-space: pre;
   background: #000; color: #d7f5c4; padding: 6px 8px; border-radius: 5px; margin: 4px 0; overflow-x: auto; }
 .panel .readout { color: #e6e6e6; }
 .panel .folder { border-top: 1px solid var(--line); padding: 4px 0; }

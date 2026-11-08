@@ -15,6 +15,10 @@
  *   "points": [[u, v], ...]                // for "catmull-rom" / "bspline"
  * }
  *
+ * We also write "closed": true / false. It is an extra key (readers that do
+ * not know it can ignore it); without it a closed spline could not be told
+ * apart from an open one.
+ *
  * The painting quad spans x ∈ [−a, a], y ∈ [−1, 1] at z = 0 (a = image
  * width / height), so  u = (x + a) / (2a)  and  v = (1 − y) / 2.
  */
@@ -26,26 +30,19 @@ const round = (x) => Math.round(x * 1e4) / 1e4; // 0.0001 ≈ a tenth of a pixel
  * Build the object above from a curve of scene/curve.js (world x, y on the
  * painting plane). Every control point goes through
  *     u = (x + a) / (2a),   v = (1 − y) / 2.
- * A closed spline is written "unrolled" (its last point first, its first two
- * points again at the end), so the usual open evaluation of `points` gives
- * exactly the closed curve that was drawn.
  */
 export function curveToJSON(curve) {
   const uv = (p) => worldToUV(p, curve.aspect).map(round);
-  const out = { painting: curve.painting, kind: curve.kind };
-  if (curve.kind === 'bezier-c1') {
-    out.segments = segments(curve).map((seg) => seg.map(uv));
-  } else {
-    const P = curve.points;
-    const pts = curve.closed && P.length >= 3 ? [P[P.length - 1], ...P, P[0], P[1]] : P;
-    out.points = pts.map(uv);
-  }
+  const out = { painting: curve.painting, kind: curve.kind, closed: curve.closed };
+  if (curve.kind === 'bezier-c1') out.segments = segments(curve).map((seg) => seg.map(uv));
+  else out.points = curve.points.map(uv);
   return out;
 }
 
 /**
  * The inverse of curveToJSON, for loading a saved curve onto a painting with
- * the given aspect. A Bézier whose last P3 equals its first P0 comes back closed.
+ * the given aspect. "closed" is read when present; a Bézier whose last P3
+ * equals its first P0 also comes back closed.
  */
 export function curveFromJSON(obj, aspect) {
   if (!obj || !KINDS.includes(obj.kind)) throw new Error(`unknown curve kind: ${obj?.kind}`);
@@ -54,6 +51,7 @@ export function curveFromJSON(obj, aspect) {
     return uvToWorld(p, aspect);
   };
   const curve = { painting: obj.painting, aspect, kind: obj.kind, closed: false, points: [] };
+  const closed = obj.closed === true;
   if (obj.kind === 'bezier-c1') {
     const segs = obj.segments ?? [];
     segs.forEach((seg, i) => {
@@ -67,6 +65,7 @@ export function curveFromJSON(obj, aspect) {
     }
   } else {
     curve.points = (obj.points ?? []).map(world);
+    curve.closed = closed && curve.points.length >= 3;
   }
   return curve;
 }

@@ -17,12 +17,6 @@ struct VSOut {
   @location(1) local: vec2f,   // position inside the quad, for round points
 };
 
-// Two triangles; x = along the segment (0 → a, 1 → b), y = side (−1, +1).
-const LINE_QUAD = array<vec2f, 6>(
-  vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
-  vec2f(0.0, -1.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0),
-);
-
 @vertex
 fn vsLine(@builtin(vertex_index) vi: u32,
           @location(0) a: vec3f, @location(1) b: vec3f,
@@ -50,7 +44,12 @@ fn vsLine(@builtin(vertex_index) vi: u32,
   let dir = select(vec2f(1.0, 0.0), d / len, len > 1e-5);
   let nrm = vec2f(-dir.y, dir.x);
 
-  var quad = LINE_QUAD;                       // a var can be indexed at run time everywhere
+  // two triangles; x = along the segment (0 → a, 1 → b), y = side (−1, +1).
+  // A function-scope var array can be indexed at run time by every WGSL compiler.
+  var quad = array<vec2f, 6>(
+    vec2f(0.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+    vec2f(0.0, -1.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0),
+  );
   let c = quad[vi];
   let p = select(ca, cb, c.x > 0.5);
   // widen sideways, and extend the ends by half a width (square caps, so
@@ -60,16 +59,14 @@ fn vsLine(@builtin(vertex_index) vi: u32,
   return o;
 }
 
-const POINT_QUAD = array<vec2f, 6>(
-  vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
-  vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
-);
-
 @vertex
 fn vsPoint(@builtin(vertex_index) vi: u32,
            @location(0) pos: vec3f, @location(1) colour: vec3f, @location(2) size: f32) -> VSOut {
   var o: VSOut;
-  var quad = POINT_QUAD;
+  var quad = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0),
+    vec2f(-1.0, -1.0), vec2f(1.0, 1.0), vec2f(-1.0, 1.0),
+  );
   let c = quad[vi];
   let clip = u.viewProj * vec4f(pos, 1.0);
   o.colour = colour;

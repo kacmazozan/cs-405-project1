@@ -121,11 +121,14 @@ export class Overlay {
     this.points.push(...p, ...colour, size * this.#dpr);
   }
 
-  /** Upload everything queued this frame, draw it, and start empty again. */
-  draw(pass, viewProj) {
-    const { device, canvas } = this.gpu;
+  /**
+   * Upload everything queued this frame, draw it, and start empty again.
+   * @param {number[]} [size]  the viewport in device pixels (default: the whole canvas)
+   */
+  draw(pass, viewProj, size = [this.gpu.canvas.width, this.gpu.canvas.height]) {
+    const { device } = this.gpu;
     device.queue.writeBuffer(this.uniforms, 0, viewProj);
-    device.queue.writeBuffer(this.uniforms, 64, new Float32Array([canvas.width, canvas.height, 0, 0]));
+    device.queue.writeBuffer(this.uniforms, 64, new Float32Array([size[0], size[1], 0, 0]));
 
     for (const [batch, pipe] of [
       [this.lines, this.linePipeline],

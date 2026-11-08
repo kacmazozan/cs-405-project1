@@ -23,6 +23,7 @@ import { createBezierDemo } from './bezierDemo.js';
 import { Mesh, MeshRenderer } from '../render/mesh.js';
 import { Overlay } from '../render/overlay.js';
 import * as mat4 from '../math/mat4.js';
+import * as vec3 from '../math/vec3.js';
 
 const AXIS_COLOURS = [[1, 0.05, 0.05], [0.1, 0.9, 0.1], [0.15, 0.35, 1]];
 
@@ -49,12 +50,20 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   const bezier = createBezierDemo({ panel, painting, view, paintingId }); // Part D: one Bézier + de Casteljau
   const curves = createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId }); // Part D: piecewise
 
-  // the scene graph as text (Part B)
+  // the scene graph as text (Part B), with each node's local transform
   const g = panel.folder('Scene graph', { open: false });
-  let tree = '';
-  root.traverse((n, d) => { tree += `${'  '.repeat(d)}${n.data.mesh ? '■' : '○'} ${n.name}\n`; });
-  g.text(tree.trimEnd());
-  g.note('○ transform-only node · ■ node with a mesh');
+  g.note('○ transform-only node · ■ node with a mesh · then its local matrix');
+  const treeText = g.text('');
+  const treeString = () => {
+    let s = '';
+    root.traverse((n, d) => {
+      s += `${'  '.repeat(d)}${n.data.mesh ? '■' : '○'} ${n.name}${n.data.desc ? `   ${n.data.desc}` : ''}\n`;
+    });
+    return s.trimEnd();
+  };
+  let nodeCount = 0, levels = 0;
+  root.traverse((_, d) => { nodeCount++; levels = Math.max(levels, d + 1); });
+  g.note(`${nodeCount} nodes, ${levels} levels (the world root is level 1)`);
 
   let grabbed = null; // which curve owns the current drag
 
@@ -79,35 +88,41 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       curves.update(dt, time);
       root.updateWorld();
       arm.afterUpdate();
+      treeText.set(treeString());
     },
 
     /**
      * @param {GPURenderPassEncoder} pass  @param {Float32Array} viewProj  P · V
-     * @param {(overlay: Overlay) => void} [extra]  more overlay drawing (main.js: the frustum)
+     * @param {object} [o]
+     * @param {(overlay: Overlay) => void} [o.extra]  more overlay drawing (main.js: the frustum)
+     * @param {number[]} [o.eye]       camera position for the lighting (default: view.camera)
+     * @param {number[]} [o.viewport]  device-pixel size of the viewport (default: the canvas)
      */
-    draw(pass, viewProj, extra) {
+    draw(pass, viewProj, { extra, eye = view.camera.eye, viewport } = {}) {
       const nodes = visibleNodes(root);
       const drawn = nodes.filter((n) => n.data.mesh?.count > 0);
       // opaque first; see-through objects last so what is behind them is already there
       drawn.sort((a, b) => (b.data.colour[3] ?? 1) - (a.data.colour[3] ?? 1));
-      meshRenderer.begin(view.camera.eye, drawn.length);
+      meshRenderer.begin(eye, drawn.length);
       for (const n of drawn) meshRenderer.draw(pass, n.data.mesh, viewProj, n.world, n.data.colour);
 
       if (state.debugAxes) {
+        // every visible node's local frame: origin = world·(0,0,0,1), axes = world·eₖ.
+        // The axes are normalised to one length, so a node's scale does not hide them.
         for (const n of nodes) {
-          if (n.data.mesh && !n.data.showAxes) continue;
-          const len = n === root ? 0.5 : 0.15;
+          const len = n === root ? 0.5 : 0.12;
           const o = mat4.transformVec4(n.world, [0, 0, 0, 1]).slice(0, 3);
           for (let k = 0; k < 3; k++) {
-            const e = [0, 0, 0, 1]; e[k] = len;
-            overlay.line(o, mat4.transformVec4(n.world, e).slice(0, 3), AXIS_COLOURS[k], 2, true);
+            const e = [0, 0, 0, 0]; e[k] = 1;
+            const dir = vec3.normalize(mat4.transformVec4(n.world, e).slice(0, 3));
+            overlay.line(o, vec3.add(o, vec3.scale(dir, len)), AXIS_COLOURS[k], 2, true);
           }
         }
       }
       curves.drawOverlay(overlay);
       bezier.drawOverlay(overlay);
       extra?.(overlay);
-      overlay.draw(pass, viewProj);
+      overlay.draw(pass, viewProj, viewport);
     },
 
     reset() {

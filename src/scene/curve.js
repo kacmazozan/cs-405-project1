@@ -16,7 +16,10 @@
  * ends at A0). Segment i is points[3i … 3i + 3], so consecutive segments
  * share their joint by construction, and C¹ only needs the two handles
  * around each anchor to mirror each other (c1NextControl).
- * For the other two kinds `points` are the spline's control points.
+ * For the other two kinds `points` are the spline's control points. An open
+ * Catmull–Rom spline is CLAMPED: its first and last segments use the end point
+ * twice, so the curve passes through every control point, the two ends included.
+ * The uniform B-spline approximates its points (it passes through none of them).
  */
 import * as C from '../math/curves.js';
 
@@ -40,6 +43,7 @@ export function segmentCount(curve) {
   const n = curve.points.length;
   if (isBezier(curve)) return curve.closed ? (n >= 6 ? n / 3 : 0) : Math.max(0, (n - 1) / 3);
   if (curve.closed) return n >= 3 ? n : 0;
+  if (curve.kind === 'catmull-rom') return Math.max(0, n - 1); // clamped: one segment per pair
   return Math.max(0, n - 3);
 }
 
@@ -50,7 +54,10 @@ export function segments(curve) {
   for (let i = 0; i < count; i++) {
     if (isBezier(curve)) out.push([0, 1, 2, 3].map((k) => P[(3 * i + k) % n]));
     else if (curve.closed) out.push([-1, 0, 1, 2].map((k) => P[mod(i + k, n)]));
-    else out.push([P[i], P[i + 1], P[i + 2], P[i + 3]]);
+    else if (curve.kind === 'catmull-rom') {
+      // clamped ends: the missing neighbour is the end point itself
+      out.push([P[Math.max(0, i - 1)], P[i], P[i + 1], P[Math.min(n - 1, i + 2)]]);
+    } else out.push([P[i], P[i + 1], P[i + 2], P[i + 3]]);
   }
   return out;
 }
@@ -254,9 +261,9 @@ export function setClosed(curve, closed) {
 /**
  * Change the kind and keep the shape where the maths allows it:
  *   spline → Bézier is EXACT (every segment rewritten with bezierOfSegment);
- *   Bézier → Catmull–Rom keeps the anchors (exact for curves that came from
- *   Catmull–Rom); Catmull–Rom ↔ B-spline keeps the control points, so you
- *   can see the same points interpolated vs approximated.
+ *   Bézier → spline keeps the anchors as control points (exact for a Bézier
+ *   that came from Catmull–Rom); Catmull–Rom ↔ B-spline keeps the control
+ *   points, so you can see the same points interpolated vs approximated.
  */
 export function convert(curve, kind) {
   if (kind === curve.kind) return;
@@ -277,18 +284,7 @@ export function convert(curve, kind) {
     if (curve.closed) curve.points.pop(); // the last P3 is the first P0 again
     return;
   } else if (curve.kind === 'bezier-c1') {
-    const P = curve.points;
-    const anchors = P.filter((_, i) => i % 3 === 0);
-    if (!curve.closed && anchors.length >= 2) {
-      // phantom end points that give Catmull–Rom the same end tangents:
-      // tangent at A0 = 3(H − A0) = (A1 − p₋₁)/2  →  p₋₁ = A1 − 6(H − A0)
-      const a0 = P[0], h0 = P[1], an = P[P.length - 1], hn = P[P.length - 2];
-      const first = anchors[1].map((x, d) => x - 6 * (h0[d] - a0[d]));
-      const last = anchors[anchors.length - 2].map((x, d) => x + 6 * (an[d] - hn[d]));
-      curve.points = [first, ...anchors, last];
-    } else {
-      curve.points = anchors;
-    }
+    curve.points = curve.points.filter((_, i) => i % 3 === 0); // the anchors
   }
   curve.kind = kind;
 }

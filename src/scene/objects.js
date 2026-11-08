@@ -39,7 +39,7 @@ export function createObjects({ root, meshes, panel }) {
   const solid = (code) => [...hex(code), 1];
   const fixed = (name, local, mesh, colour) => {
     const n = group.addChild(new SceneNode(name, local));
-    n.data = { mesh, colour: solid(colour), showAxes: true };
+    n.data = { mesh, colour: solid(colour), desc: 'T·R·S (fixed)' };
     return n;
   };
 
@@ -56,7 +56,7 @@ export function createObjects({ root, meshes, panel }) {
 
   // The T·R·S demo object and a see-through "ghost" with the other order.
   const demo = group.addChild(new SceneNode('T·R·S demo'));
-  demo.data = { mesh: meshes.cube, colour: solid('#f07a4a'), showAxes: true };
+  demo.data = { mesh: meshes.cube, colour: solid('#f07a4a') };
   const ghost = group.addChild(new SceneNode('other order (ghost)'));
   ghost.data = { mesh: meshes.cube, colour: [...hex('#4aa3f0'), 0.35] };
 
@@ -67,7 +67,7 @@ export function createObjects({ root, meshes, panel }) {
     f.slider('translate x', state, 'tx', -1.5, 1.5, 0.01),
     f.slider('translate y', state, 'ty', -1, 1, 0.01),
     f.slider('translate z', state, 'tz', 0, 1.5, 0.01),
-    f.slider('angle (rad)', state, 'angle', -Math.PI, Math.PI, 0.01),
+    f.slider('angle (rad)', state, 'angle', -3.14, 3.14, 0.01), // ±3.14: on the 0.01 grid
     f.slider('scale x', state, 'sx', 0.05, 1, 0.01),
     f.slider('scale y', state, 'sy', 0.05, 1, 0.01),
     f.slider('scale z', state, 'sz', 0.05, 1, 0.01),
@@ -96,6 +96,8 @@ export function createObjects({ root, meshes, panel }) {
       demo.local = first ? mTRS : mSRT;
       ghost.local = first ? mSRT : mTRS;
       ghost.data.hidden = !state.ghost;
+      demo.data.desc = state.order;
+      ghost.data.desc = first ? 'S·R·T' : 'T·R·S';
       trsText.set(mat4.format(mTRS));
       srtText.set(mat4.format(mSRT));
     },

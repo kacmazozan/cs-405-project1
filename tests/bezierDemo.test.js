@@ -73,3 +73,22 @@ test('the kavunlu preset is the fitted top contour of the melon', () => {
   const P = [[0.301, 0.23], [0.429, 0.008], [0.78, 0.122], [0.867, 0.325]].map(([u, v]) => [(2 * u - 1) * a, 1 - 2 * v]);
   closeArr(drawn[0][32].slice(0, 2), cubicBezier(...P, 0.5), 1e-6); // the curve, 64 samples
 });
+
+test('degree switch: 3 control points for a quadratic, and degree elevation is exact', async () => {
+  const { elevate, reduce } = await import('../src/scene/bezierDemo.js');
+  const { bezier } = await import('../src/math/curves.js');
+  const Q = [[0, 0], [1, 2], [3, 0]];
+  const C = elevate(Q);
+  for (const t of [0, 0.25, 0.6, 1]) closeArr(bezier(C, t), bezier(Q, t), 1e-12); // same curve
+  reduce(C).forEach((p, i) => closeArr(p, Q[i], 1e-12));                         // and back
+
+  const { demo, selects, texts } = setup();
+  selects[1]('quadratic (3 points)');
+  const drawn = [];
+  demo.drawOverlay({ polyline() {}, line() {}, point: (p, c, size) => drawn.push(size) });
+  demo.update(0);
+  assert.match(texts[0].value, /degree n = 2: quadratic, 3 control points/);
+  assert.match(texts[0].value, /matches/);
+  // drawn last: the 3 control points (size 13), before them B(t) (13) and level 1 (2 points, 8)
+  assert.deepEqual(drawn.slice(-6), [8, 8, 13, 13, 13, 13]);
+});

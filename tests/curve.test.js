@@ -47,10 +47,31 @@ test('JSON export uses (u, v) and round-trips', () => {
   back.points.forEach((p, i) => closeArr(p, c.points[i], 1e-3));
 });
 
-test('closed spline export is unrolled so an open evaluation reproduces it', () => {
+test('closed splines keep their points and export "closed": true', () => {
   const c = { painting: 'x', aspect: A, kind: 'bspline', closed: true, points: [[0, 0], [1, 0], [1, 1], [0, 1]] };
   const json = curveToJSON(c);
-  assert.equal(json.points.length, 7);
-  const open = curveFromJSON(json, A);
-  Curve.sample(open, 4).forEach((p, i) => closeArr(p, Curve.sample(c, 4)[i], 1e-3));
+  assert.equal(json.closed, true);
+  assert.equal(json.points.length, 4);
+  const back = curveFromJSON(json, A);
+  assert.equal(back.closed, true);
+  Curve.sample(back, 4).forEach((p, i) => closeArr(p, Curve.sample(c, 4)[i], 1e-3));
+});
+
+test('an open Catmull–Rom spline passes through EVERY control point, ends included', () => {
+  const P = [[0, 0], [0.5, 0.4], [1, -0.2], [1.3, 0.3], [1.2, 0.8]];
+  const c = { painting: 'x', aspect: A, kind: 'catmull-rom', closed: false, points: P.map((p) => [...p]) };
+  assert.equal(Curve.segmentCount(c), 4);
+  P.forEach((p, i) => closeArr(Curve.evaluate(c, i / 4).point, p, 1e-9));
+  close(Curve.c1Error({ ...c, kind: 'catmull-rom' }), 0, 1e-9); // C¹ at every joint
+});
+
+test('Bézier of any degree: generic evaluation matches the cubic one, and the quadratic basis', async () => {
+  const { bezier, bezierTangent, cubicBezier, cubicBezierTangent, bernstein } = await import('../src/math/curves.js');
+  const P = [[0, 0], [1, 2], [3, 3], [4, 0]];
+  for (const t of [0, 0.3, 0.71, 1]) {
+    closeArr(bezier(P, t), cubicBezier(...P, t));
+    closeArr(bezierTangent(P, t), cubicBezierTangent(...P, t));
+  }
+  closeArr(bernstein(2, 0.5), [0.25, 0.5, 0.25]);
+  closeArr(bezier([[0, 0], [1, 1], [2, 0]], 0.5), [1, 0.5]);
 });

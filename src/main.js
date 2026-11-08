@@ -51,14 +51,16 @@ async function main() {
   const camera = createCamera();
   // Part C: a second, fixed camera that shows the main camera and its frustum.
   // The mouse always moves the MAIN camera, so you can watch its frustum follow.
+  // One of the two fills the canvas; the other one is drawn in a small inset.
   const inspection = createInspectionCamera();
-  const views = { active: 'main camera' };
+  const views = { active: 'main camera', inset: true };
   // what the scene needs for picking: the camera we render with and this frame's P · V
   const view = { camera, canvas, aspect: 1, viewProj: mat4.identity() };
 
   const cf = panel.folder('C · Camera');
   const camStatus = cf.text('');
   const viewSel = cf.select('look through', ['main camera', 'inspection camera'], views.active, (v) => (views.active = v));
+  const insetToggle = cf.toggle('inset: the other camera', views, 'inset');
   const projSel = cf.select('projection', ['perspective', 'orthographic'], camera.projection, (v) => (camera.projection = v));
   const camUI = { fovDeg: camera.fovY * 180 / Math.PI };
   const camSliders = [
@@ -85,17 +87,35 @@ async function main() {
     camSliders.forEach((s) => s.update());
     projSel.set(camera.projection);
     views.active = 'main camera';
+    views.inset = true;
     viewSel.set(views.active);
+    insetToggle.update();
     scene.reset();
   });
   vf.note(gpu.encodeSRGB ? 'sRGB: encoded in shader (fallback)' : 'sRGB: canvas -srgb view');
 
+  /** The inset's rectangle: top-left corner, 30 % of the width, same aspect as the canvas. */
+  function insetRect() {
+    const dpr = canvas.clientWidth > 0 ? canvas.width / canvas.clientWidth : 1;
+    const w = Math.max(16, Math.round(canvas.width * 0.3));
+    const h = Math.max(16, Math.round((w * canvas.height) / canvas.width));
+    const m = Math.round(10 * dpr);
+    return { x: m, y: m, w, h, dpr };
+  }
+  const inInset = (px) => {
+    if (!views.inset) return false;
+    const r = insetRect();
+    const x = px[0] * r.dpr, y = px[1] * r.dpr;
+    return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  };
+
   /* -------------- input --------------- */
   // A press either grabs a curve point (Part D) or moves the camera (Part C).
+  // Inside the inset a drag always moves the main camera.
   let mode = null;
   attachPointer(canvas, {
     down(e) {
-      if (scene.pointerDown(e)) mode = 'scene';
+      if (!inInset(e.px) && scene.pointerDown(e)) mode = 'scene';
       else mode = e.button === 0 ? 'orbit' : 'pan';
     },
     drag(e) {
@@ -107,7 +127,7 @@ async function main() {
       if (mode === 'scene') scene.pointerUp(e);
       mode = null;
     },
-    move(e) { scene.pointerMove(e); },
+    move(e) { scene.pointerMove(inInset(e.px) ? { ...e, px: [-1e6, -1e6] } : e); },
     wheel(e) {
       zoom(camera, Math.exp(e.delta * 0.001));
       camSliders[3].update();
@@ -132,7 +152,9 @@ async function main() {
     view.viewProj = vp.matrix;
     camStatus.set(vp.fallback
       ? `PLACEHOLDER view (no camera yet)\n${vp.missing}`
-      : `${inspecting ? 'INSPECTION view — mouse still moves the main camera' : 'main camera'}: P · V (${camera.projection})`);
+      : `view: ${inspecting ? 'INSPECTION camera' : 'main camera'}, P · V (${camera.projection})` +
+        (inspecting ? '\nthe mouse still moves the main camera' : '') +
+        (views.inset ? `\ninset: ${inspecting ? 'main' : 'inspection'} camera` : ''));
     camStatus.el.classList.toggle('warn', vp.fallback);
     camReadout.set(
       `eye    ${camera.eye.map((x) => x.toFixed(2)).join(', ')}\n` +
@@ -150,8 +172,23 @@ async function main() {
     const paintingMVP = vp.fallback ? vp.matrix : mat4.multiply(vp.matrix, painting.model);
     renderer.render((pass) => {
       painting.draw(pass, paintingMVP, renderer);
-      scene.draw(pass, vp.matrix, inspecting ? (overlay) => drawCamera(overlay, camera, aspect) : undefined);
+      scene.draw(pass, vp.matrix, { extra: inspecting ? (overlay) => drawCamera(overlay, camera, aspect) : undefined });
     });
+
+    // the other camera in a small inset, with the same aspect (so the frustum matches it)
+    if (views.inset && !vp.fallback) {
+      const rect = insetRect();
+      const other = inspecting ? camera : inspection;
+      const ivp = viewProjection(other, aspect, painting.aspect).matrix;
+      renderer.renderInset(rect, (pass) => {
+        painting.draw(pass, mat4.multiply(ivp, painting.model), renderer);
+        scene.draw(pass, ivp, {
+          eye: other.eye,
+          viewport: [rect.w, rect.h],
+          extra: inspecting ? undefined : (overlay) => drawCamera(overlay, camera, aspect),
+        });
+      });
+    }
 
     stats.end(renderer.stats);
     requestAnimationFrame(frame);
@@ -162,10 +199,11 @@ async function main() {
 /** The main camera as seen from the inspection camera: its frustum, eye and view direction. */
 const FRUSTUM = hex('#ffe066'), NEAR = hex('#5ad1ff'), FAR = hex('#ff7a7a');
 function drawCamera(overlay, cam, aspect) {
-  const { lines, near, far } = frustumLines(cam, aspect);
+  const { lines, near, far, section } = frustumLines(cam, aspect);
   for (const [a, b] of lines) overlay.line(a, b, FRUSTUM, 1.5, true);
   overlay.polyline(near, NEAR, 3, true, true);
   overlay.polyline(far, FAR, 3, true, true);
+  overlay.polyline(section, hex('#ffffff'), 1.5, true, true); // the screen at the target's depth
   overlay.line(cam.eye, cam.target, hex('#ffffff'), 1, true);
   overlay.point(cam.eye, FRUSTUM, 12);
   overlay.point(cam.target, hex('#ffffff'), 7);
