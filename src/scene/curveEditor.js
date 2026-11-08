@@ -335,12 +335,16 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
       });
     },
 
+    /** Every control back to its default, and the painting's preset curve (also its kind / closed boxes). */
     reset() {
       Object.assign(state, DEFAULTS);
       ui.forEach((c) => c.update());
       bonusUI.forEach((c) => c.update());
       sweepSel.set(state.sweepMode);
       stroke = null;
+      drawing = false;
+      message = '';
+      setCurve(Curve.presetCurve(curve.painting, painting.aspect));
     },
   };
 }

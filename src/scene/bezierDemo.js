@@ -194,13 +194,15 @@ export function createBezierDemo({ panel, painting, view, paintingId }) {
       });
     },
 
+    /** Every control back to its default, and the preset control points. */
     reset() {
       Object.assign(state, DEFAULTS);
       ui.forEach((c) => c.update());
       showSel.set(state.show);
       degreeSel.set(state.degree);
-      P = toDegree(P);
+      P = preset(currentId);
       sets.set(currentId, P);
+      hover = dragging = -1;
       dir = 1;
     },
   };

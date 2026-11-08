@@ -37,12 +37,15 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   };
   const meshRenderer = new MeshRenderer(gpu, renderer);
   const overlay = new Overlay(gpu, renderer);
-  const state = { debugAxes: false, showObjects: true, showArm: true };
+  const DEFAULTS = { debugAxes: false, showObjects: true, showArm: true };
+  const state = { ...DEFAULTS };
 
   const f = panel.folder('Scene');
-  f.toggle('objects (A)', state, 'showObjects');
-  f.toggle('robot arm (B)', state, 'showArm');
-  f.toggle('debug axes (node frames)', state, 'debugAxes');
+  const sceneUI = [
+    f.toggle('objects (A)', state, 'showObjects'),
+    f.toggle('robot arm (B)', state, 'showArm'),
+    f.toggle('debug axes (node frames)', state, 'debugAxes'),
+  ];
 
   const root = new SceneNode('world');
   const objects = createObjects({ root, meshes, panel });
@@ -61,9 +64,9 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
     });
     return s.trimEnd();
   };
-  let nodeCount = 0, levels = 0;
-  root.traverse((_, d) => { nodeCount++; levels = Math.max(levels, d + 1); });
-  g.note(`${nodeCount} nodes, ${levels} levels (the world root is level 1)`);
+  let nodeCount = 0, depth = 0;
+  root.traverse((_, d) => { nodeCount++; depth = Math.max(depth, d); });
+  g.note(`${nodeCount} nodes · ${depth + 1} levels, counting the world root as level 1 (deepest node ${depth} steps below the root)`);
 
   let grabbed = null; // which curve owns the current drag
 
@@ -125,7 +128,10 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       overlay.draw(pass, viewProj, viewport);
     },
 
+    /** Back to the start-up state: every checkbox, slider and selection, and the curves. */
     reset() {
+      Object.assign(state, DEFAULTS);
+      sceneUI.forEach((c) => c.update());
       objects.reset();
       arm.reset();
       curves.reset();

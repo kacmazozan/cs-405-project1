@@ -92,6 +92,7 @@ async function main() {
     insetToggle.update();
     scene.reset();
   });
+  vf.note('reset: back to the start-up state — camera, every checkbox, slider and selection, and the curves (export a curve first to keep it).');
   vf.note(gpu.encodeSRGB ? 'sRGB: encoded in shader (fallback)' : 'sRGB: canvas -srgb view');
 
   /** The inset's rectangle: top-left corner, 30 % of the width, same aspect as the canvas. */

@@ -119,7 +119,10 @@ drag the points to move them).
   vertical axis through the curve's centroid (placed in front of the painting), or
   *extrude* it out of the painting by *extrude depth*. It updates while you edit.
 
-**View** — *reset* restores the camera, the objects and the curve settings.
+**View** — *reset* returns everything to the start-up state: the camera and views,
+every checkbox, slider and selection in every folder, the objects, the arm and the
+curves (the single Bézier's points and the painting's preset curve — export a curve
+first if you want to keep it). The chosen painting stays.
 The stats box shows frame time, CPU time, draw calls and vertices per frame.
 
 ## Deliverables in this repository
@@ -195,6 +198,8 @@ world
 └─ swept surface (bonus)
 ```
 
-28 nodes on 8 levels. Joint nodes hold only rotation + translation; the scale
+28 nodes; counting the world root as level 1 there are 8 levels (the deepest path,
+world → arm → turret → shoulder → elbow → wrist → finger L → finger L mesh, is 7
+steps below the root). Joint nodes hold only rotation + translation; the scale
 that shapes each link lives in a leaf mesh node, so it does not stretch the nodes
 below it. The fruit is a child of the wrist, so the arm carries it.
