@@ -78,14 +78,22 @@ async function main() {
   mf.note('P (WebGPU depth 0…1)');
   const projText = mf.text('');
 
-  const scene = createScene({ gpu, renderer, painting, panel, view, paintingId: current.id });
+  /** Put the camera's own controls back in step with `camera` (reset, bonus camera match). */
+  const refreshCameraUI = () => {
+    camUI.fovDeg = camera.fovY * 180 / Math.PI;
+    camSliders.forEach((s) => s.update());
+    projSel.set(camera.projection);
+  };
+
+  const scene = createScene({
+    gpu, renderer, painting, panel, view, camera, paintingId: current.id,
+    onCameraChanged: refreshCameraUI,
+  });
 
   const vf = panel.folder('View');
   vf.button('reset', () => {
     Object.assign(camera, createCamera());
-    camUI.fovDeg = camera.fovY * 180 / Math.PI;
-    camSliders.forEach((s) => s.update());
-    projSel.set(camera.projection);
+    refreshCameraUI();
     views.active = 'main camera';
     views.inset = true;
     viewSel.set(views.active);

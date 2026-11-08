@@ -9,7 +9,9 @@
  *   world ─┬─ objects (Part A: melon, pedestal, cone, T·R·S demo + ghost)
  *          ├─ arm     (Part B: robot arm, see arm.js)
  *          ├─ curve follower (Part D: rides along the curve)
- *          └─ swept surface  (bonus: the curve revolved / extruded)
+ *          ├─ swept surface  (bonus: the curve revolved / extruded)
+ *          ├─ gpu ribbon     (bonus: the curve tessellated in a compute shader)
+ *          └─ painting-aligned box (bonus: axes from the painting's vanishing points)
  *
  * Every mesh node is drawn with  mvp = viewProj · node.world.
  */
@@ -20,6 +22,7 @@ import { createObjects } from './objects.js';
 import { createArm } from './arm.js';
 import { createCurveEditor } from './curveEditor.js';
 import { createBezierDemo } from './bezierDemo.js';
+import { createCalibration } from './calibration.js';
 import { Mesh, MeshRenderer } from '../render/mesh.js';
 import { Overlay } from '../render/overlay.js';
 import * as mat4 from '../math/mat4.js';
@@ -27,7 +30,7 @@ import * as vec3 from '../math/vec3.js';
 
 const AXIS_COLOURS = [[1, 0.05, 0.05], [0.1, 0.9, 0.1], [0.15, 0.35, 1]];
 
-export function createScene({ gpu, renderer, painting, panel, view, paintingId }) {
+export function createScene({ gpu, renderer, painting, panel, view, camera, paintingId, onCameraChanged }) {
   const { device } = gpu;
   const meshes = {
     cube: new Mesh(device, cube(), 'cube'),
@@ -52,6 +55,8 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
   const arm = createArm({ root, meshes, panel });
   const bezier = createBezierDemo({ panel, painting, view, paintingId }); // Part D: one Bézier + de Casteljau
   const curves = createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId }); // Part D: piecewise
+  // bonus: the painter's own camera, recovered from vanishing points
+  const calib = createCalibration({ root, meshes, panel, painting, view, camera, paintingId, onCameraChanged });
 
   // the scene graph as text (Part B), with each node's local transform
   const g = panel.folder('Scene graph', { open: false });
@@ -89,6 +94,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       curves.enabled = bezier.showsPiecewise;
       bezier.update(dt, time);
       curves.update(dt, time);
+      calib.update();
       root.updateWorld();
       arm.afterUpdate();
       treeText.set(treeString());
@@ -124,6 +130,7 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       }
       curves.drawOverlay(overlay);
       bezier.drawOverlay(overlay);
+      calib.drawOverlay(overlay);
       extra?.(overlay);
       overlay.draw(pass, viewProj, viewport);
     },
@@ -136,19 +143,25 @@ export function createScene({ gpu, renderer, painting, panel, view, paintingId }
       arm.reset();
       curves.reset();
       bezier.reset();
+      calib.reset();
     },
 
-    setPainting(id) { curves.setPainting(id); bezier.setPainting(id); },
+    setPainting(id) { curves.setPainting(id); bezier.setPainting(id); calib.setPainting(id); },
 
-    // The single Bézier's four points get the first chance at a click, then the editor.
+    // While the calibration lines are shown they get the first chance at a
+    // click (marking them is a deliberate mode), then the single Bézier's
+    // four points, then the curve editor.
     pointerDown(e) {
-      grabbed = bezier.pointerDown(e) ? bezier : curves.pointerDown(e) ? curves : null;
+      grabbed = calib.pointerDown(e) ? calib
+        : bezier.pointerDown(e) ? bezier
+          : curves.pointerDown(e) ? curves : null;
       return grabbed !== null;
     },
     pointerDrag: (e) => grabbed?.pointerDrag(e),
     pointerUp(e) { grabbed?.pointerUp(e); grabbed = null; },
     pointerMove(e) {
-      const over = bezier.pointerMove(e) | curves.pointerMove(e); // both update their hover
+      // every editor updates its own hover, so call all three
+      const over = calib.pointerMove(e) | bezier.pointerMove(e) | curves.pointerMove(e);
       view.canvas.style.cursor = over ? 'grab' : '';
     },
   };

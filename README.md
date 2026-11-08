@@ -33,6 +33,7 @@ Choose the painting in the panel, or with `?painting=<id>` in the URL
 | drag a control point | move it (Bézier: the joint stays C¹) |
 | alt + click a control point | delete it (on a Bézier handle: deletes its anchor) |
 | left-drag on the painting, *freehand trace* on | draw a stroke; release to fit a curve to it (bonus) |
+| drag a calibration end point, *show calibration lines* on | move one end of a vanishing-point line (bonus); these get the first chance at a click while they are shown |
 
 ## Panel
 
@@ -118,6 +119,46 @@ drag the points to move them).
 - *swept surface* — builds a mesh from the curve: *revolve* about a horizontal or
   vertical axis through the curve's centroid (placed in front of the painting), or
   *extrude* it out of the painting by *extrude depth*. It updates while you edit.
+- *GPU ribbon (compute shader)* — the curve is evaluated **on the GPU**: the control
+  points go into a storage buffer, a compute pass runs de Casteljau at every sample
+  and writes the ribbon's triangles straight into a buffer that is created with
+  `STORAGE | VERTEX` and bound as the vertex buffer of the mesh pipeline in the same
+  frame, so the geometry is never read back. *ribbon width*, *ribbon twists* (turns of
+  the cross-section about the tangent, which lifts the ribbon out of the painting
+  plane) and *ribbon samples / segment* drive it; the readout shows how many quads and
+  vertices the compute shader wrote. Any curve kind works — each segment is first
+  rewritten exactly as a cubic Bézier.
+
+**Bonus · painting camera** (collapsed) — recover the painter's own camera from the
+painting and point our camera the same way.
+- Mark two pairs of lines that are **parallel in the painted scene** and
+  **perpendicular to each other**: group A in orange, group B in blue, eight draggable
+  end points. Each pair meets at a vanishing point; two vanishing points of
+  perpendicular directions give the focal length, because the painting hangs as a quad
+  of half-height 1, which makes its own plane an image plane with the principal point
+  at the origin:
+
+  > f² = −(v₁ · v₂),  fovY = 2·atan(1 / f),  eye = (0, 0, f)
+
+- *show calibration lines* draws the marks, their extensions towards the vanishing
+  points, the vanishing points themselves and the horizon through them.
+- *match camera to the painting* moves the camera there, so everything in front of the
+  painting is projected with the painter's perspective.
+- *aligned test box* is the check: its edges run along the two recovered scene
+  directions, so once the camera is matched they must come out parallel to the lines
+  you marked. *box distance* and *box size* only change where it sits along its ray.
+- The readout gives both vanishing points, v₁·v₂ (which has to be negative), f in
+  half-heights and in painting pixels, fovY, the horizon's tilt and the two recovered
+  axes — **and a warning line whenever the number should not be trusted**: marks that
+  are nearly parallel on the canvas (the vanishing point runs off to infinity and f
+  becomes wildly sensitive), a horizon that comes out steeply tilted, or an implausible
+  field of view. When v₁·v₂ > 0 there is no real f at all and it says so instead of
+  printing one.
+- The marks start on sensible features for each painting and the hint at the top of the
+  folder says what to aim at, but they are a **starting point, not a measurement** —
+  drag them onto the paint yourself before quoting any number. The method needs a
+  *two-point* view: a painting composed square-on sends one vanishing point to infinity
+  and cannot be calibrated this way.
 
 **View** — *reset* returns everything to the start-up state: the camera and views,
 every checkbox, slider and selection in every folder, the objects, the arm and the
@@ -154,7 +195,11 @@ equals its first P0.
 | `src/math/vec3.js`, `mat4.js` | vectors; matrices, rigid inverse, normal matrix, lookAt, WebGPU projections |
 | `src/math/quat.js` | quaternions: axis-angle, product, rotation, from basis, slerp (bonus) |
 | `src/math/fit.js` | least-squares Bézier fitting, Newton reparametrisation, C¹ piecewise fit (bonus) |
+| `src/math/calibrate.js` | vanishing points, f² = −(v₁·v₂), the camera they imply, plausibility checks (bonus) |
+| `src/math/ribbon.js` | the ribbon's frames and buffer sizes; the CPU reference `ribbon.wgsl` mirrors (bonus) |
 | `src/scene/sweep.js` | surface of revolution and extrusion of a curve (bonus) |
+| `src/scene/calibration.js` | the draggable calibration marks, the readout and the camera match (bonus) |
+| `src/render/ribbon.js`, `shaders/ribbon.wgsl` | the compute pass that tessellates the curve into a ribbon (bonus) |
 | `src/math/curves.js` | Bernstein / Bézier, de Casteljau, C¹ joints, Catmull–Rom, B-spline, basis conversions |
 | `src/scene/node.js` | scene-graph node, `world = parent.world · local` |
 | `src/scene/camera.js` | camera data, P·V, orbit / zoom / pan, preset views, inspection camera and frustum, screen ray for picking |
@@ -172,7 +217,7 @@ equals its first P0.
 | `src/render/renderer.js` | provided frame pass, plus `renderInset()` for the picture-in-picture view |
 | `src/render/*` (others) | WebGPU setup, painting, textures, sRGB handling (provided) |
 | `src/ui/*` | panel, stats, pointer events (provided) |
-| `tests/` | unit tests (`curve.test.js`, `camera.test.js`, `bonus.test.js` and `bezierDemo.test.js` are ours, the rest are the course's) |
+| `tests/` | unit tests (`curve.test.js`, `camera.test.js`, `bonus.test.js`, `bezierDemo.test.js`, `calibrate.test.js` and `ribbon.test.js` are ours, the rest are the course's) |
 
 ### Scene graph
 
@@ -195,10 +240,12 @@ world
 │              ├─ finger L (Rz grip) ── mesh
 │              └─ finger R (Rz −grip) ── mesh
 ├─ curve follower
-└─ swept surface (bonus)
+├─ swept surface (bonus)
+├─ gpu ribbon (bonus)
+└─ painting-aligned box (bonus)
 ```
 
-28 nodes; counting the world root as level 1 there are 8 levels (the deepest path,
+30 nodes; counting the world root as level 1 there are 8 levels (the deepest path,
 world → arm → turret → shoulder → elbow → wrist → finger L → finger L mesh, is 7
 steps below the root). Joint nodes hold only rotation + translation; the scale
 that shapes each link lives in a leaf mesh node, so it does not stretch the nodes

@@ -8,7 +8,9 @@
  *
  * Bonus: "freehand trace" turns a drag over the painting into a stroke and
  * fits a C¹ piecewise Bézier to it by least squares (math/fit.js); "swept
- * surface" revolves or extrudes the curve into a mesh (scene/sweep.js).
+ * surface" revolves or extrudes the curve into a mesh (scene/sweep.js);
+ * "GPU ribbon" evaluates the curve in a compute shader and tessellates it
+ * into a ribbon without the geometry ever reaching the CPU (render/ribbon.js).
  *
  * Control points are picked in SCREEN space (project each point with P·V and
  * compare pixel distances) and placed in WORLD space (cast a ray through the
@@ -21,6 +23,7 @@ import * as vec3 from '../math/vec3.js';
 import { fitPiecewiseC1 } from '../math/fit.js';
 import { sweepMesh, SWEEPS } from './sweep.js';
 import { Mesh } from '../render/mesh.js';
+import { Ribbon } from '../render/ribbon.js';
 import { SceneNode } from './node.js';
 import { planePoint as hitPlane, pickPoint } from './picking.js';
 import { hex } from '../render/colour.js';
@@ -53,6 +56,10 @@ const DEFAULTS = {
   sweep: false,
   sweepMode: SWEEPS[0],
   depth: 0.15,
+  ribbon: false,
+  ribbonWidth: 0.05,
+  ribbonTwists: 1.5,
+  ribbonSamples: 24,
 };
 
 export function createCurveEditor({ gpu, root, meshes, panel, painting, view, paintingId }) {
@@ -72,6 +79,13 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
   const sweep = root.addChild(new SceneNode('swept surface'));
   sweep.data = { mesh: new Mesh(gpu.device, new Float32Array(0), 'swept surface'), colour: [...hex('#d6cf73'), 1], hidden: true, desc: 'mesh rebuilt from the curve' };
   let sweepKey = '';
+
+  // The compute-shader ribbon (bonus): its vertex buffer is written by a
+  // compute pass, never by the CPU, and rebuilt only when something changes.
+  const ribbon = new Ribbon(gpu, 'gpu ribbon');
+  const ribbonNode = root.addChild(new SceneNode('gpu ribbon'));
+  ribbonNode.data = { mesh: ribbon.mesh, colour: [...hex('#5ee7ff'), 1], hidden: true, desc: 'tessellated in a compute shader' };
+  let ribbonKey = '';
 
   /* ---------------- panel ---------------- */
   const f = panel.folder('D · Curves');
@@ -108,6 +122,14 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
     bf.slider('extrude depth', state, 'depth', 0.02, 0.6, 0.01),
   ];
   const sweepSel = bf.select('sweep', SWEEPS, state.sweepMode, (v) => (state.sweepMode = v));
+  bf.note('GPU ribbon: the curve is evaluated with de Casteljau in a compute shader, which writes the ribbon’s triangles straight into the vertex buffer.');
+  const ribbonUI = [
+    bf.toggle('GPU ribbon (compute shader)', state, 'ribbon'),
+    bf.slider('ribbon width', state, 'ribbonWidth', 0.005, 0.25, 0.005),
+    bf.slider('ribbon twists', state, 'ribbonTwists', 0, 6, 0.1),
+    bf.slider('ribbon samples / segment', state, 'ribbonSamples', 2, 128, 1),
+  ];
+  const ribbonInfo = bf.text();
 
   /** Fit the finished stroke and make it the current curve. */
   function finishStroke() {
@@ -269,6 +291,29 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
           sweep.data.mesh.update(sweepMesh(Curve.sample(curve, 16), { mode: state.sweepMode, closed: curve.closed, depth: state.depth }));
         }
       }
+      // Bonus: the GPU ribbon. Every curve kind is first rewritten exactly as
+      // cubic Béziers, so the compute shader only has to know de Casteljau.
+      ribbonNode.data.hidden = !enabled || !state.ribbon || segs === 0;
+      if (!ribbonNode.data.hidden) {
+        const key = `${state.ribbonWidth}|${state.ribbonTwists}|${state.ribbonSamples}|${curve.kind}|${curve.closed}|${curve.points.flat().join(',')}`;
+        if (key !== ribbonKey) {
+          ribbonKey = key;
+          const bez = Curve.segments(curve).map((s) => Curve.bezierOfSegment(curve.kind, s));
+          const count = ribbon.build(bez, {
+            samples: Math.round(state.ribbonSamples),
+            halfWidth: state.ribbonWidth / 2,
+            twists: state.ribbonTwists,
+            z: LIFT * 3,
+          });
+          ribbonInfo.set(`${bez.length} cubic segments × ${Math.round(state.ribbonSamples)} samples\n`
+            + `${count / 6} quads, ${count.toLocaleString('en-US')} vertices written by the compute shader`);
+        }
+      } else if (state.ribbon) {
+        ribbonInfo.set('(the curve has no segment yet)');
+      } else {
+        ribbonInfo.set('(off)');
+      }
+
       const err = curve.kind === 'bezier-c1' ? Curve.c1Error(curve) : 0;
       const uv = (p) => Curve.worldToUV(p, curve.aspect).map((x) => x.toFixed(3)).join(', ');
       const sel = dragging >= 0 ? dragging : hover;
@@ -340,7 +385,9 @@ export function createCurveEditor({ gpu, root, meshes, panel, painting, view, pa
       Object.assign(state, DEFAULTS);
       ui.forEach((c) => c.update());
       bonusUI.forEach((c) => c.update());
+      ribbonUI.forEach((c) => c.update());
       sweepSel.set(state.sweepMode);
+      ribbonKey = '';
       stroke = null;
       drawing = false;
       message = '';
