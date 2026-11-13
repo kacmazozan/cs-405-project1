@@ -171,7 +171,7 @@ The stats box shows frame time, CPU time, draw calls and vertices per frame.
 - `curves/kavunlu-curve.json` — the exported curve (outline of the melon slice).
 - `report/report.pdf` — the report. Its source is `report/report.html` (with the
   screenshots in `report/img/`): open it in Chrome or Edge, *Print → Save as PDF*,
-  A4, default margins, "Background graphics" on. Places still to fill in are yellow.
+  A4, default margins, "Background graphics" on.
 
 ## Curve export format
 
